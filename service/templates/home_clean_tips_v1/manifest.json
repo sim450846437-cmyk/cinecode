@@ -17,6 +17,7 @@
     "forbid": ["文具", "铅笔", "橡皮", "笔筒", "尺子", "便签", "收纳"]
   },
   "cannot_show": ["更换", "边条", "安装"],
+  "can_show": ["擦", "台面", "水渍", "喷", "抹布", "清水", "热水", "盘", "污", "清洁", "抹", "冲", "做完"],
   "font": {
     "dest": "fonts/DroidSansFallbackFull.ttf",
     "source": "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",

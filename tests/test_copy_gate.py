@@ -11,7 +11,7 @@ import copy_local
 class Gate(unittest.TestCase):
     def test_pour_back_is_rejected_and_a_negated_line_is_not(self):
         self.assertEqual(copy_local.input_constraints("把用过的清洁液倒回原来的瓶子")[0]["code"], "pour_back")
-        self.assertEqual(copy_local.output_constraints("整理台面，不用清洁剂", ["用白醋擦一遍。"]), ["brief_forbids:白醋"])
+        self.assertIn("forbidden_substance:白醋", copy_local.output_constraints("整理台面，不用清洁剂", ["用白醋擦一遍。"]))
         self.assertIn("pour_back", copy_local.hazard_codes(["清洁剂用后记得倒回容器里，避免浪费。"]))
         self.assertEqual(copy_local.hazard_codes(["不要把清洁液倒回原瓶。"]), [])
         self.assertIn("mix_agents", copy_local.hazard_codes(["把漂白水和洁厕灵混用。"]))
@@ -45,3 +45,60 @@ class Gate(unittest.TestCase):
         self.assertEqual(asr_edit.cer("台面", "台面"), 0.0)
         self.assertEqual(asr_edit.synthetic_status("declared_recording"), "declared_not_synthetic")
         self.assertEqual(asr_edit.synthetic_status("unknown"), "unknown")
+
+
+class SubstancePolicy(unittest.TestCase):
+    """Limited list. Equivalent wording shares one policy. Unknown wording is not treated as safe."""
+
+    def forbid(self, brief, constraints=None):
+        policy = copy_local.build_policy(brief, constraints)
+        self.assertEqual(policy["status"], "clear", policy["unparsed"])
+        return tuple(policy["forbid_substances"])
+
+    def test_equivalent_negations_share_the_cleaner_closure(self):
+        expected = ("清洁剂", "白醋", "酒精")
+        for brief in (
+            "整理台面，不用清洁剂",
+            "整理台面，不使用清洁剂",
+            "整理台面，不要用清洁剂",
+            "整理台面，禁止用清洁剂",
+        ):
+            self.assertEqual(self.forbid(brief), expected, brief)
+        water = self.forbid("整理台面，仅用清水")
+        self.assertIn("清洁剂", water)
+        self.assertIn("白醋", water)
+        self.assertIn("酒精", water)
+        self.assertNotIn("清水", water)
+        explicit = self.forbid("整理一下", {"forbid_substances": ["清洁剂"], "allow_only": []})
+        self.assertEqual(explicit, expected)
+
+    def test_quoted_ban_and_substitute_wording_still_block(self):
+        brief = "不使用清洁剂"
+        quoted = ["不要用白醋。", "热水擦干。", "收起抹布。", "看一眼台面。"]
+        evasion = ["用热水加白醋擦拭台面。", "喷一点医用酒精。", "加一勺食用醋。", "擦干水渍。"]
+        self.assertIn("forbidden_substance:白醋", copy_local.output_constraints(brief, quoted))
+        self.assertIn("forbidden_substance:白醋", copy_local.output_constraints(brief, evasion))
+        self.assertIn("forbidden_substance:酒精", copy_local.output_constraints(brief, evasion))
+        policy, hits = copy_local.apply_policy(brief, evasion)
+        self.assertEqual(policy["brief"], brief)
+        self.assertTrue(policy["parsed_rules"])
+        self.assertTrue(hits)
+
+    def test_ordinary_briefs_are_not_treated_as_bans(self):
+        for brief in ("把不用的铅笔收进笔筒", "不要用力折断铅笔", "文具分类摆好"):
+            policy = copy_local.build_policy(brief)
+            self.assertEqual(policy["status"], "clear")
+            self.assertEqual(policy["forbid_substances"], [], brief)
+        lines = ["铅笔放进笔盒。", "橡皮单独装袋。", "尺子竖着摆好。", "便签放在上层。"]
+        self.assertEqual(copy_local.output_constraints("文具分类摆好", lines), [])
+        amino = copy_local.find_substances("补充氨基酸。", ["氨"])
+        self.assertEqual(amino, [])
+
+    def test_unknown_negation_is_review_not_safe(self):
+        for brief in ("切勿用漂白水", "不使用某种喷雾"):
+            policy = copy_local.build_policy(brief)
+            self.assertEqual(policy["status"], "needs_review", brief)
+            self.assertTrue(policy["unparsed"])
+        named = copy_local.build_policy("只擦台面", {"forbid_substances": ["苏打"]})
+        self.assertEqual(named["status"], "needs_review")
+        self.assertIn("not a general safety proof", named["coverage"])

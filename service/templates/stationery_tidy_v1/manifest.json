@@ -16,7 +16,8 @@
     "need_any": ["文具", "铅笔", "橡皮", "笔", "收纳", "尺子", "便签", "标签"],
     "forbid": ["灶", "抹布", "洗碗", "水渍", "清洁液", "漂白", "台面"]
   },
-  "cannot_show": ["洒落", "掉在地上"],
+  "cannot_show": ["洒落", "掉在地上", "圆规", "剪刀", "胶水", "订书机"],
+  "can_show": ["铅笔", "橡皮", "尺子", "尺", "笔", "标签", "便签", "盒", "筒", "文具", "收纳", "整理", "摆", "入", "查看"],
   "font": {
     "dest": "fonts/DroidSansFallbackFull.ttf",
     "source": "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",

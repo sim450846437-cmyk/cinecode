@@ -11,10 +11,10 @@ A host that reported about 3.2 GB available and no swap cannot be assumed to
 load the 3B file. This process refuses to start llama when MemAvailable is
 below twice the GGUF size. One llama process, one thread.
 
-The screen can block or ask the same model to rewrite once. It does not
+The screen can block. It does not ask for another sample and it does not
 replace the text with a handwritten script. Passing the screen is not a
-prose-quality pass. Exit 3 when the model cannot run. Exit 4 when the text
-is rejected.
+prose-quality pass, and the substance list is not a general safety proof.
+Exit 3 when the model cannot run. Exit 4 when the text is rejected.
 """
 import argparse
 import json
@@ -87,8 +87,26 @@ def hazard_codes(lines):
     return found
 
 
+# Closed names the checker can verify. Forbidding 清洁剂 also closes 白醋 and 酒精,
+# the substitutes a rewrite used after 「不使用清洁剂」. This is not every chemical.
+SUBSTANCES = {
+    "清洁剂": ("清洁剂", "清洁液", "洗洁精", "洗涤剂"),
+    "白醋": ("白醋", "食醋", "米醋", "食用醋", "醋精", "醋"),
+    "酒精": ("医用酒精", "酒精", "乙醇"),
+    "漂白": ("漂白剂", "漂白粉", "漂白水", "漂白"),
+    "氨": ("氨水", "氨"),
+    "清水": ("清水",),
+}
+CLEANER_CLOSURE = ("白醋", "酒精")
+FORBID_FRAMES = ("禁止使用", "不要使用", "不准使用", "不使用", "禁止用", "不要用", "别用", "勿用", "不用")
+ALLOW_FRAMES = ("仅允许使用", "仅用", "只用", "只许用")
+UNKNOWN_CUES = ("切勿", "严禁", "不得使用", "不得用", "避免使用", "不能用", "不可用", "不准用")
+NON_OBJECT = set("的力心手劲功完太再了着过很就也")
+COVERAGE = "limited list: named substances plus the cleaner substitutes 白醋 and 酒精; not a general safety proof"
+
+
 def input_constraints(brief):
-    """Local, explainable limits on the request itself. Not a general safety proof."""
+    """Hard limits checked before the model runs. Not a general safety proof."""
     found = []
     rules = (
         ("pour_back", re.compile(r"(清洁|液|剂|漂白|醋|酒精).{0,10}(倒回|回灌|灌回|倒进原|倒入原)|(倒回|回灌|灌回).{0,8}(瓶|容器|原)")),
@@ -101,13 +119,169 @@ def input_constraints(brief):
     return found
 
 
-def output_constraints(brief, lines):
+def _object_after(text, index):
+    buf = []
+    for ch in text[index:]:
+        if ch in "，。！？；、,. \n" or not ("\u4e00" <= ch <= "\u9fff"):
+            break
+        buf.append(ch)
+        if len(buf) >= 8:
+            break
+    return "".join(buf)
+
+
+def _known_substance(token):
+    best = None
+    for name, aliases in SUBSTANCES.items():
+        for alias in aliases:
+            if token.startswith(alias) and (best is None or len(alias) > best[0]):
+                best = (len(alias), name)
+    return None if best is None else best[1]
+
+
+def _looks_like_substance(token):
+    return bool(re.search(r"剂|液|醇|醋|粉|精|化学|消毒|清洁|喷雾|漂白|氨", token))
+
+
+def _scan_frames(text):
+    rules, unparsed = [], []
+    occupied = [False] * len(text)
+    for cue in sorted(UNKNOWN_CUES, key=len, reverse=True):
+        start = 0
+        while True:
+            found = text.find(cue, start)
+            if found < 0:
+                break
+            if not any(occupied[found:found + len(cue)]):
+                obj = _object_after(text, found + len(cue))
+                span = text[found:found + len(cue) + len(obj)]
+                for j in range(found, found + len(span)):
+                    occupied[j] = True
+                unparsed.append({"span": span, "reason": "unknown_negation"})
+            start = found + len(cue)
+    frames = [(len(phrase), "allow_only", phrase) for phrase in ALLOW_FRAMES]
+    frames += [(len(phrase), "forbid", phrase) for phrase in FORBID_FRAMES]
+    frames.sort(reverse=True)
+    i = 0
+    while i < len(text):
+        matched = None
+        for _, kind, phrase in frames:
+            if text.startswith(phrase, i) and not any(occupied[i:i + len(phrase)]):
+                matched = (kind, phrase)
+                break
+        if matched is None:
+            i += 1
+            continue
+        kind, phrase = matched
+        obj = _object_after(text, i + len(phrase))
+        span = text[i:i + len(phrase) + len(obj)]
+        for j in range(i, i + len(span)):
+            occupied[j] = True
+        if not obj or obj[0] in NON_OBJECT:
+            i += len(phrase)
+            continue
+        substance = _known_substance(obj)
+        if substance:
+            rules.append({"kind": kind, "frame": phrase, "span": span, "substance": substance})
+        elif _looks_like_substance(obj):
+            unparsed.append({"span": span, "reason": "unknown_substance"})
+        i += max(1, len(phrase))
+    return rules, unparsed
+
+
+def build_policy(brief, constraints=None):
+    """One policy for an explicit constraints object and for the brief's negations."""
+    constraints = constraints or {}
+    rules, unparsed = _scan_frames(brief or "")
+    forbid, allow = [], []
+
+    def add(bucket, name):
+        if name not in bucket:
+            bucket.append(name)
+
+    for name in constraints.get("forbid_substances") or []:
+        if name not in SUBSTANCES:
+            unparsed.append({"span": name, "reason": "unknown_constraint"})
+        else:
+            add(forbid, name)
+    for name in constraints.get("allow_only") or []:
+        if name not in SUBSTANCES:
+            unparsed.append({"span": name, "reason": "unknown_constraint"})
+        else:
+            add(allow, name)
+    for rule in rules:
+        add(allow if rule["kind"] == "allow_only" else forbid, rule["substance"])
+        rule["also"] = []
+    if allow:
+        for name in SUBSTANCES:
+            if name not in allow:
+                add(forbid, name)
+    if "清洁剂" in forbid:
+        for extra in CLEANER_CLOSURE:
+            if extra not in forbid:
+                add(forbid, extra)
+                for rule in rules:
+                    if rule["substance"] == "清洁剂":
+                        rule["also"] = list(CLEANER_CLOSURE)
+    return {
+        "status": "needs_review" if unparsed else "clear",
+        "brief": brief or "",
+        "constraints": {
+            "forbid_substances": list((constraints or {}).get("forbid_substances") or []),
+            "allow_only": list((constraints or {}).get("allow_only") or []),
+        },
+        "parsed_rules": rules,
+        "unparsed": unparsed,
+        "forbid_substances": forbid,
+        "allow_only": allow,
+        "coverage": COVERAGE,
+    }
+
+
+def find_substances(text, names):
+    """Substance mentions, including ones quoted inside 不要用. Longest alias wins."""
+    hits = []
+    occupied = [False] * len(text)
+    aliases = []
+    for name in names:
+        for alias in SUBSTANCES.get(name, ()):
+            aliases.append((len(alias), name, alias))
+    aliases.sort(reverse=True)
+    for _, name, alias in aliases:
+        start = 0
+        while True:
+            found = text.find(alias, start)
+            if found < 0:
+                break
+            if alias == "氨" and text.startswith("氨基", found):
+                start = found + 1
+                continue
+            if not any(occupied[found:found + len(alias)]):
+                for j in range(found, found + len(alias)):
+                    occupied[j] = True
+                hits.append({"substance": name, "span": alias})
+            start = found + len(alias)
+    return hits
+
+
+def apply_policy(brief, lines, constraints=None):
+    policy = build_policy(brief, constraints)
+    if policy["status"] != "clear":
+        return policy, [{"code": "constraint_needs_review", **item} for item in policy["unparsed"]]
+    problems = []
+    for hit in find_substances("\n".join(lines), policy["forbid_substances"]):
+        problems.append({"code": "forbidden_substance", **hit})
+    return policy, problems
+
+
+def output_constraints(brief, lines, constraints=None):
+    policy, problems = apply_policy(brief, lines, constraints)
     found = list(hazard_codes(lines))
-    text = "\n".join(lines)
-    if re.search(r"不用清洁剂|不要清洁剂|别用清洁剂|勿用清洁剂", brief):
-        for word in ("清洁剂", "白醋", "酒精", "漂白", "氨"):
-            if word in text:
-                found.append("brief_forbids:" + word)
+    if policy["status"] != "clear":
+        found.append("constraint_needs_review")
+    for item in problems:
+        if item["code"] == "forbidden_substance":
+            found.append("forbidden_substance:" + item["substance"])
     return found
 
 
@@ -194,8 +368,20 @@ def review_verdict(cli, model, lines):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brief", required=True)
+    parser.add_argument("--constraints", default="")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.constraints:
+        try:
+            constraints = json.loads(args.constraints)
+        except json.JSONDecodeError:
+            print(json.dumps({"error": "constraints_rejected"}))
+            return 2
+        if not isinstance(constraints, dict):
+            print(json.dumps({"error": "constraints_rejected"}))
+            return 2
+    else:
+        constraints = {}
     cli = os.environ.get("CINECODE_LLAMA_CLI", "")
     model = os.environ.get("CINECODE_COPY_MODEL", "")
     if not cli or not model or not os.path.isfile(cli) or not os.path.isfile(model):
@@ -230,16 +416,34 @@ def main(argv):
             "brief": brief,
             "input_constraints": blocked_input,
             "lines": [],
+            "coverage": COVERAGE,
         }
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         print(json.dumps({"error": "input_constraint_rejected", "input_constraints": blocked_input}, ensure_ascii=False))
         return 4
+    policy = build_policy(brief, constraints)
+    if policy["status"] != "clear":
+        payload = {
+            "error": "constraint_needs_review",
+            "passed_screen": False,
+            "prose_quality_pass": False,
+            "ai_generated": False,
+            "brief": brief,
+            "substance_policy": policy,
+            "lines": [],
+            "coverage": COVERAGE,
+        }
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        print(json.dumps({"error": "constraint_needs_review", "unparsed": policy["unparsed"]}, ensure_ascii=False))
+        return 4
     text = llama(cli, model, SYS, brief, 160)
     if text is None:
         return 1
     lines = parse_lines(text, brief)
-    problems = output_constraints(brief, lines) + repetition_codes(lines)
+    _, substance_problems = apply_policy(brief, lines, constraints)
+    problems = output_constraints(brief, lines, constraints) + repetition_codes(lines)
     drafts = [lines]
     revised = False
     if not problems:
@@ -255,8 +459,9 @@ def main(argv):
             "passed_screen": True,
             "prose_quality_pass": False,
             "listened": False,
-            "screen": ["input_constraints", "output_constraints", "repetition_codes"],
+            "screen": ["input_constraints", "substance_policy", "repetition_codes"],
             "brief": brief,
+            "substance_policy": policy,
             "drafts": drafts,
             "lines": lines,
             "text": "\n".join(lines),
@@ -277,6 +482,8 @@ def main(argv):
         "prose_quality_pass": False,
         "listened": False,
         "problems": problems,
+        "substance_hits": substance_problems,
+        "substance_policy": policy,
         "brief": brief,
         "drafts": drafts,
         "lines": drafts[-1] if drafts else [],

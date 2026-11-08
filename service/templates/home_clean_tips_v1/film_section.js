@@ -131,6 +131,22 @@ function lineAt(i, fallback) {
   const s = COPY_LINES[i];
   return s && s.trim() ? s.trim() : '';
 }
+function spokenLines() {
+  return (COPY_LINES || []).map((s) => String(s || '').trim()).filter(Boolean);
+}
+function sceneLine(sceneIndex, k) {
+  const rows = spokenLines();
+  if (!rows.length) return '';
+  const n = SCENES.length;
+  const groups = Array.from({ length: n }, () => []);
+  rows.forEach((row, i) => groups[Math.min(n - 1, Math.floor(i * n / rows.length))].push(row));
+  const mine = groups[sceneIndex];
+  if (!mine.length) {
+    const prior = groups.slice(0, sceneIndex + 1).flat();
+    return prior.length ? prior[prior.length - 1] : rows[0];
+  }
+  return mine[Math.min(mine.length - 1, Math.floor(Math.max(0, Math.min(0.999, k)) * mine.length))];
+}
 function captionUnits(str) {
   const units = [];
   let buf = '';
@@ -193,93 +209,108 @@ function caption(g, S, str, yNorm, k) {
   });
   g.restore();
 }
-function counterSweep(g, k, t, S) {
-  // dolly in, 4.8 s, ease-out, toward the cloth
+function stain(g, remain) {
+  if (remain <= 0.02) return;
+  g.save();
+  g.globalAlpha = Math.min(1, remain);
+  for (let i = 0; i < 5; i++) {
+    g.fillStyle = i % 2 ? '#9ec4c8' : '#7eb0b6';
+    g.beginPath();
+    g.ellipse(-0.08 + (i % 3) * 0.1, 0.08 + Math.floor(i / 3) * 0.08, 0.055 * remain, 0.03 * remain, 0, 0, TAU);
+    g.fill();
+  }
+  g.restore();
+}
+function cleanKind(line) {
+  const s = line || '';
+  if (s.includes('擦干') || s.includes('水渍') || s.includes('冲')) return 'dry';
+  if (s.includes('喷') || s.includes('擦') || s.includes('抹')) return 'wipe';
+  if (s.includes('做完') || s.includes('查看')) return 'done';
+  return 'sweep';
+}
+function dryPlate(g, k, remain) {
+  g.fillStyle = PALETTE.plate;
+  g.beginPath(); g.ellipse(0.05, 0.12, 0.28, 0.14, 0, 0, TAU); g.fill();
+  g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
+  stain(g, remain);
+  fillRR(g, lerp(-0.42, 0.36, k), 0.02, 0.32, 0.14, 0.03, PALETTE.sponge);
+}
+function stroke(k, turns) {
+  return (Math.sin(Math.max(0, Math.min(1, k)) * Math.PI * turns) + 1) / 2;
+}
+function paintClean(g, k, line, S) {
+  const kind = cleanKind(line);
+  const p = Math.max(0, Math.min(1, k));
+  if (kind === 'wipe') {
+    fillRR(g, -0.62, -0.28, 0.2, 0.42, 0.04, PALETTE.bottle);
+    for (let i = 0; i < 6; i++) dot(g, S, -0.2 + i * 0.12, 0.04, 0.03 * (1 - p), PALETTE.mist, 0.95 * (1 - p));
+    g.save();
+    g.translate(lerp(-0.55, 0.62, stroke(p, 4)), 0.16);
+    g.rotate(-0.2);
+    fillRR(g, -0.34, -0.18, 0.68, 0.36, 0.05, PALETTE.cloth);
+    g.restore();
+    return;
+  }
+  if (kind === 'done') {
+    g.fillStyle = PALETTE.plate;
+    g.beginPath(); g.ellipse(0.02, 0.08, 0.3, 0.12, 0, 0, TAU); g.fill();
+    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
+    g.save();
+    g.translate(lerp(-0.55, 0.36, p), 0.36);
+    g.rotate(lerp(-0.8, 0.2, p));
+    fillRR(g, -0.3, -0.14, 0.6, 0.28, 0.04, PALETTE.cloth);
+    g.restore();
+    return;
+  }
+  if (kind === 'dry') {
+    g.fillStyle = PALETTE.plate;
+    g.beginPath(); g.ellipse(0.05, 0.12, 0.34, 0.16, 0, 0, TAU); g.fill();
+    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.014; g.stroke();
+    stain(g, 1 - p);
+    fillRR(g, lerp(-0.5, 0.42, stroke(p, 5)), 0.02, 0.36, 0.18, 0.03, PALETTE.sponge);
+    return;
+  }
+  const cleared = lerp(-0.55, 0.7, p);
+  for (let i = 0; i < 7; i++) {
+    const along = -0.5 + i * 0.16;
+    dot(g, S, along, 0.05, 0.04, PALETTE.accent, along < cleared ? 0 : 0.95);
+  }
+  g.save();
+  g.translate(lerp(-0.7, 0.7, stroke(p, 4)), 0.1);
+  g.rotate(-0.15);
+  fillRR(g, -0.34, -0.16, 0.68, 0.32, 0.05, PALETTE.cloth);
+  g.restore();
+}
+function stageClean(g, k, t, S, sceneIndex, camMove) {
+  const line = sceneLine(sceneIndex, k) || '先清台面';
+  const kind = cleanKind(line);
   const cam = CAM.base();
-  CAM.dolly(cam, EASE.out(k), 1.06, 0.98);
-  const wipe = (Math.sin(t * 1.7) + 1) / 2;
-  plane(g, S, cam, 0.7, () => wall(g));
-  plane(g, S, cam, 0.2, () => counter(g, 4));
+  camMove(cam, k);
+  if (kind === 'dry' || kind === 'done') {
+    plane(g, S, cam, 0.45, () => {
+      g.fillStyle = '#d7e3e4';
+      g.beginPath(); g.ellipse(0, 0.04, 0.46, 0.24, 0, 0, TAU); g.fill();
+    });
+  } else {
+    plane(g, S, cam, 0.7, () => wall(g));
+    plane(g, S, cam, 0.2, () => counter(g, 4 + sceneIndex));
+  }
   plane(g, S, cam, 0, () => {
-    for (let i = 0; i < 6; i++) {
-      const along = lerp(-0.15, 0.72, wipe) + i * 0.07;
-      const fall = Math.sin(t * 7 + i) * 0.04 + i * 0.015;
-      dot(g, S, along, 0.02 + fall, 0.02, PALETTE.accent, along < lerp(-0.55, 0.62, wipe) ? 0 : 0.95);
-    }
-    clothAt(g, lerp(-0.7, 0.7, wipe), 0.05 + Math.sin(t * 8) * 0.08, -0.35 + 0.5 * Math.sin(t * 6));
-    caption(g, S, lineAt(0, '先清台面'), -0.58, MOTION.at(t, 0.15, 0.4));
+    paintClean(g, k, line, S);
+    caption(g, S, line, -0.58, 1);
   });
+}
+function counterSweep(g, k, t, S) {
+  stageClean(g, k, t, S, 0, (cam, p) => CAM.dolly(cam, p, 1.01, 1));
 }
 function sprayWipe(g, k, t, S) {
-  // truck, 4.8 s, ease-in-out, across the bottle
-  const cam = CAM.base();
-  CAM.truck(cam, EASE.inOut(k), -0.04, 0.05);
-  const local = (t - CUES.spray) / 4.6;
-  plane(g, S, cam, 0.7, () => wall(g));
-  plane(g, S, cam, 0.2, () => counter(g, 6));
-  plane(g, S, cam, 0, () => {
-    const pump = MOTION.at(t, CUES.spray + 0.1, 0.3);
-    fillRR(g, -0.28, -0.22, 0.18, 0.4, 0.04, PALETTE.bottle);
-    fillRR(g, -0.23, -0.34, 0.08, 0.14, 0.02, PALETTE.dim);
-    for (let i = 0; i < 7; i++) {
-      const p = (local * 1.4 + i * 0.09) % 1;
-      dot(g, S, -0.05 + p * 0.55, -0.08 + Math.sin(t * 9 + i) * 0.05, 0.018, PALETTE.mist, 0.85);
-    }
-    const sweep = (Math.sin(t * 2.4) + 1) / 2;
-    g.save();
-    g.translate(lerp(0.02, 0.62, sweep), 0.22);
-    g.rotate(-0.3);
-    fillRR(g, -0.34, -0.18, 0.68, 0.36, 0.05, PALETTE.cloth);
-    g.fillStyle = PALETTE.clothEdge;
-    g.fillRect(-0.34, -0.02, 0.68, 0.02);
-    g.restore();
-    caption(g, S, local < 0.45 ? lineAbout(['喷'], 1, '喷一点') : lineAbout(['擦拭', '轻轻', '顺'], 2, '顺纹擦开'), -0.58, pump);
-  });
+  stageClean(g, k, t, S, 1, (cam, p) => CAM.truck(cam, p, 0, 0.02));
 }
 function rinsePlate(g, k, t, S) {
-  // crane, 5.4 s, ease-in-out, down toward the plate
-  const cam = CAM.base();
-  CAM.crane(cam, EASE.inOut(k), 0.06, -0.08);
-  plane(g, S, cam, 0.55, () => {
-    g.fillStyle = '#d7e3e4';
-    g.beginPath(); g.ellipse(0, 0.05, 0.42, 0.28, 0, 0, TAU); g.fill();
-    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.02; g.stroke();
-  });
-  plane(g, S, cam, 0, () => {
-    const flow = MOTION.at(t, CUES.sink, 0.45);
-    g.fillStyle = PALETTE.water;
-    g.fillRect(-0.03, -0.55, 0.035, 0.28 * flow);
-    g.fillStyle = PALETTE.plate;
-    g.beginPath(); g.ellipse(0.05, 0.12, 0.22, 0.1, 0, 0, TAU); g.fill();
-    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
-    const scrub = (Math.sin(t * 3.2) + 1) / 2;
-    fillRR(g, lerp(-0.45, 0.35, scrub), 0.02, 0.34, 0.16, 0.03, PALETTE.sponge);
-    caption(g, S, lineAbout(['擦干', '水渍', '过盘'], 3, '热水过盘'), -0.62, flow);
-  });
+  stageClean(g, k, t, S, 2, (cam, p) => CAM.crane(cam, p, 0, -0.02));
 }
 function threeChecks(g, k, t, S) {
-  // push in, 3 s, ease-out, on the checks
-  const cam = CAM.base();
-  CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
-  plane(g, S, cam, 0.4, () => wall(g));
-  plane(g, S, cam, 0, () => {
-    const sweep = (Math.sin((t - CUES.card) * 3.2) + 1) / 2;
-    g.save();
-    g.translate(lerp(-0.55, 0.55, sweep), 0.08);
-    g.rotate(0.35);
-    fillRR(g, -0.36, -0.2, 0.72, 0.4, 0.05, PALETTE.cloth);
-    g.restore();
-  });
-  const title = lineAt(4, '') || lineAt((COPY_LINES || []).length - 1, '三步做完');
-  caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));
-  const rows = [];
-  for (const i of [5, 6, 7]) {
-    const s = lineAt(i, '');
-    if (s && s !== title && !rows.includes(s)) rows.push(s);
-  }
-  rows.forEach((word, i) => {
-    caption(g, S, word, -0.22 + i * 0.2, MOTION.back(clamp((k - 0.08 * i) / 0.35)));
-  });
+  stageClean(g, k, t, S, 3, (cam, p) => CAM.pushTo(cam, p, 0, 0, 1.01, 1));
 }
 function score(ctx, out) {
   for (const [from, to] of spans('pad')) pad(ctx, out, from, to - from, [hz('C3'), hz('G3'), hz('C4')], 0.07);

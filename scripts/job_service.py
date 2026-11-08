@@ -38,6 +38,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
+if str(KIT / "scripts") not in sys.path:
+    sys.path.insert(0, str(KIT / "scripts"))
+import copy_local  # noqa: E402  substance policy shared with the copy screen
 TEMPLATES = KIT / "service" / "templates"
 FILM_MARK = "// ============================== FILM =============================="
 HELPERS_MARK = "// ============================== HELPERS (picture) =============================="
@@ -194,12 +197,61 @@ def declared_audio_source(body):
 
 
 def template_cannot_show(manifest, text):
-    """Phrases this fixed picture cannot act out. Not a general content rating."""
+    """Lines this picture cannot act. A theme keyword is not enough."""
     missing = []
-    for phrase in manifest.get("cannot_show") or []:
-        if phrase and phrase in text:
-            missing.append(phrase)
-    return missing
+    banned = [phrase for phrase in manifest.get("cannot_show") or [] if phrase]
+    show = [word for word in manifest.get("can_show") or [] if word]
+    for line in str(text).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        hit = [phrase for phrase in banned if phrase in line]
+        if hit:
+            missing.extend(hit)
+            continue
+        if show and not any(word in line for word in show):
+            missing.append(line)
+    return list(dict.fromkeys(missing))
+
+
+def taken_constraints(body):
+    raw = body.get("constraints", None)
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or set(raw) - {"forbid_substances", "allow_only"}:
+        return error_body("invalid_field", "constraints allows only forbid_substances and allow_only", "request")
+    cleaned = {}
+    for key in ("forbid_substances", "allow_only"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+            return error_body("invalid_field", key + " must be a list of substance names", "request")
+        cleaned[key] = [item.strip() for item in value]
+    return cleaned
+
+
+def substance_decision(brief, lines, constraints):
+    """Parsed rules stay with the decision. An unknown negation is not treated as safe."""
+    policy = copy_local.build_policy(brief or "", constraints or {})
+    if policy["status"] != "clear":
+        return "constraint_needs_review", policy, (
+            "A negation or constraint is outside the checked list. It is not treated as safe, and nothing is rendered."
+        )
+    hard = copy_local.input_constraints(brief or "")
+    if hard:
+        policy = dict(policy, input_constraints=hard)
+        return "input_constraint_rejected", policy, (
+            "The brief asks to pour a cleaner back or to mix agents. That is rejected before the model runs."
+        )
+    if lines:
+        hits = copy_local.find_substances("\n".join(lines), policy["forbid_substances"])
+        if hits:
+            policy = dict(policy, substance_hits=hits)
+            return "constraint_rejected", policy, (
+                "The text contains a substance the constraint forbids: " + "、".join(hit["span"] for hit in hits)
+            )
+    return None, policy, ""
 
 
 def topic_fits(manifest, text):
@@ -258,9 +310,13 @@ def validate(body):
         "task_type", "template_id", "asset_ids", "brief", "script", "replacement_target",
         "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode", "upload_id",
         "synthetic_test", "reference_text", "speech_language", "audio_source",
+        "constraints",
     })
     if unknown:
         return error_body("unknown_field", "unknown fields: " + ", ".join(unknown), "request")
+    constraints = taken_constraints(body)
+    if isinstance(constraints, tuple):
+        return constraints
     task = body.get("task_type")
     if not isinstance(task, str):
         return error_body("invalid_field", "task_type must be a string", "request")
@@ -342,6 +398,10 @@ def validate(body):
                 )
             if not isinstance(brief, str) or len(brief.strip()) < 4:
                 return error_body("invalid_field", "generate needs a brief of at least 4 characters", "request")
+            decision, policy, why = substance_decision(brief, None, constraints)
+            if decision:
+                norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked=decision, lines=None, source="generate", substance_policy=policy)
+                return "blocked", norm, why
             if not topic_fits(manifest, brief):
                 norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked="template_topic_mismatch", lines=None, source="generate")
                 label = (manifest.get("topic") or {}).get("label") or template_id
@@ -349,7 +409,7 @@ def validate(body):
                     f"This brief does not match the {label} template. "
                     "The cleaning graphic is not used for other subjects, and the stationery graphic is not a cleaning film."
                 )
-            norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked=None, lines=None, source="generate")
+            norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked=None, lines=None, source="generate", substance_policy=policy)
             return "ok", norm, ""
         if script.get("mode") != "locked" or not isinstance(script.get("text"), str):
             return error_body("invalid_field", "script.mode must be locked or generate, and locked text must be a string", "request")
@@ -370,7 +430,11 @@ def validate(body):
                 "This template has no action for: " + "、".join(unseen) + ". No film is rendered."
             )
         source = "user_locked"
-    norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source)
+    decision, policy, why = substance_decision(brief, lines if source == "user_locked" else None, constraints)
+    if decision:
+        norm = _normalized(body, brief, timeout_s, idem, output, blocked=decision, lines=None, source=source, substance_policy=policy)
+        return "blocked", norm, why
+    norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source, substance_policy=policy)
     return "ok", norm, ""
 
 
@@ -423,7 +487,16 @@ def _validate_special(body, task):
                 "No local GGUF is configured. Set CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL. Typesetting is not used as a substitute.",
                 "generate", brief.strip(),
             )
-        return ready("generate", brief.strip())
+        constraints = taken_constraints(body)
+        if isinstance(constraints, tuple):
+            return constraints
+        decision, policy, why = substance_decision(brief.strip(), None, constraints)
+        kind, norm, message = (
+            blocked(decision, why, "generate", brief.strip()) if decision else ready("generate", brief.strip())
+        )
+        norm["constraints"] = constraints or None
+        norm["substance_policy"] = policy
+        return kind, norm, message if decision else message
     if task == "face_swap":
         return blocked(
             "head_swap_unavailable",
@@ -468,7 +541,7 @@ def _validate_special(body, task):
     return error_body("unsupported_capability", "task_type is not supported", "capability", http=422)
 
 
-def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source):
+def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source, substance_policy=None):
     script = body.get("script", None)
     if isinstance(script, dict):
         script = {"mode": script.get("mode"), "text": script.get("text")}
@@ -481,6 +554,8 @@ def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source):
         "lines": lines,
         "text_source": source,
         "brief_role": "generation_input" if source == "generate" else "metadata",
+        "constraints": body.get("constraints") if isinstance(body.get("constraints"), dict) else None,
+        "substance_policy": substance_policy,
         "replacement_target": None,
         "output": {
             "profile": output.get("profile"),
@@ -659,6 +734,8 @@ class Store:
             "generation": generation,
             "model_host": model_host,
             "brief_role": req.get("brief_role"),
+            "constraints": req.get("constraints"),
+            "substance_policy": req.get("substance_policy"),
             "audio_source": req.get("audio_source"),
             "progress": None if row["state"] in ("queued", "blocked") else {"stage": stage, "percent": None},
             "artifact": artifact,
@@ -1121,10 +1198,11 @@ class CinecodeDraftRunner:
         out = ctl.work_dir / "output"
         out.mkdir(parents=True, exist_ok=True)
         dest = out / "copy-gate.json"
-        code = ctl.run(
-            [sys.executable, str(KIT / "scripts" / "copy_local.py"),
-             "--brief", request.get("brief") or "", "--out", str(dest)],
-            ctl.work_dir, env, "render")
+        argv = [sys.executable, str(KIT / "scripts" / "copy_local.py"),
+                "--brief", request.get("brief") or "", "--out", str(dest)]
+        if request.get("constraints"):
+            argv.extend(["--constraints", json.dumps(request["constraints"], ensure_ascii=False)])
+        code = ctl.run(argv, ctl.work_dir, env, "render")
         payload = {}
         if dest.is_file():
             try:
@@ -1293,10 +1371,11 @@ class DispatchRunner:
         env = isolated_env(ctl.work_dir / "cinecode-home")
         if task == "copywriting":
             produced = out / "lines.json"
-            code = ctl.run(
-                [sys.executable, str(KIT / "scripts" / "copy_local.py"),
-                 "--brief", request.get("brief") or "", "--out", str(produced)],
-                ctl.work_dir, env, "render")
+            argv = [sys.executable, str(KIT / "scripts" / "copy_local.py"),
+                    "--brief", request.get("brief") or "", "--out", str(produced)]
+            if request.get("constraints"):
+                argv.extend(["--constraints", json.dumps(request["constraints"], ensure_ascii=False)])
+            code = ctl.run(argv, ctl.work_dir, env, "render")
             if code == 4 or code == 3:
                 payload = {}
                 if produced.is_file():

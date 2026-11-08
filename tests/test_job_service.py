@@ -210,6 +210,42 @@ class TopicAndSource(unittest.TestCase):
         ))
         self.assertEqual(kind, "blocked")
         self.assertEqual(hidden["blocked_code"], "template_cannot_show")
+        kind, compass, _ = job.validate(request(
+            template_id="stationery_tidy_v1",
+            script={"mode": "locked", "text": "把圆规放进盒里\n铅笔入筒\n橡皮归位\n尺子摆好"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(compass["blocked_code"], "template_cannot_show")
+        kind, vinegar, _ = job.validate(request(
+            brief="整理时不使用清洁剂",
+            script={"mode": "locked", "text": "用热水加白醋擦拭台面\n轻轻擦拭\n擦干水渍\n三步做完"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(vinegar["blocked_code"], "constraint_rejected")
+        self.assertIn("白醋", vinegar["substance_policy"]["forbid_substances"])
+        kind, review, _ = job.validate(request(
+            brief="切勿用漂白水擦台面",
+            script={"mode": "locked", "text": "先清台面\n轻轻擦拭\n擦干水渍\n三步做完"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(review["blocked_code"], "constraint_needs_review")
+        status, payload = job.validate(request(constraints={"mystery": ["清洁剂"]}))
+        self.assertEqual(status, 400)
+
+    def test_scene_lines_advance_and_do_not_go_back(self):
+        def shown(n_lines, n_scenes=4):
+            groups = [[] for _ in range(n_scenes)]
+            for i in range(n_lines):
+                groups[min(n_scenes - 1, i * n_scenes // n_lines)].append(i)
+            order = []
+            for group in groups:
+                order.extend(group or order[-1:])
+            return order
+        for count in (1, 4, 6, 8):
+            order = shown(count)
+            self.assertEqual(order, sorted(order))
+            self.assertEqual(order[0], 0)
+            self.assertEqual(order[-1], count - 1)
 
     def test_upload_source_is_unknown_unless_the_caller_declares_it(self):
         body = {
@@ -449,6 +485,52 @@ class Http(unittest.TestCase):
         self.assertEqual(status, 403)
         with self.assertRaises(SystemExit):
             job.make_server(self.store, "0.0.0.0", 0)
+
+    def test_ownerless_record_and_requeue_stay_denied(self):
+        token_b = self.store.add_bot("botb")
+        wav = b"RIFF" + b"\x24\x00\x00\x00" + b"WAVE" + b"fmt " + b"\x00" * 16
+        legacy_id = "abcdeffedcba9876"
+        folder = Path(self.tmp.name) / "uploads"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{legacy_id}.json").write_text(json.dumps({"bytes": len(wav), "kind": "wav"}), encoding="utf-8")
+        (folder / f"{legacy_id}.bin").write_bytes(wav)
+        before = self.store.conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        status, legacy = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 30,
+            "upload_id": legacy_id,
+            "idempotency_key": "legacy-upload",
+        }, token_b)
+        status_missing, missing = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 30,
+            "upload_id": "0123456789abcdef",
+            "idempotency_key": "missing-again",
+        }, token_b)
+        self.assertEqual(status, 403)
+        self.assertEqual(legacy["error"], missing["error"])
+        after = self.store.conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        self.assertEqual(after, before)
+        planted, planted_body = self.store.submit({
+            "task_type": "word_accurate_talking_head_edit",
+            "upload_id": legacy_id,
+            "idempotency_key": "legacy-requeue",
+            "timeout_s": 30,
+            "policy_id": "preauthorized_motion_v1",
+            "blocked_code": None,
+            "audio_source": "unknown",
+        }, "", "botb")
+        self.assertEqual(planted, 202)
+        self.store.update(planted_body["job_id"], state="rendering", pid=999999, stage="render")
+        self.assertIn(planted_body["job_id"], self.store.resume_orphans())
+        self.assertEqual(self.store.get(planted_body["job_id"])["state"], "queued")
+        self.assertTrue(job.process_one(self.store, job.DispatchRunner()))
+        row = self.store.get(planted_body["job_id"])
+        self.assertEqual(row["state"], "blocked")
+        self.assertIn("forbidden", row["error_json"])
+        self.assertFalse((Path(self.tmp.name) / "work" / planted_body["job_id"] / "output" / "after.mp4").exists())
 
 
 class Env(unittest.TestCase):

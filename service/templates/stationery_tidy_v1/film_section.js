@@ -125,6 +125,30 @@ function lineAt(i, fallback) {
   const s = COPY_LINES[i];
   return s && s.trim() ? s.trim() : '';
 }
+function spokenLines() {
+  return (COPY_LINES || []).map((s) => String(s || '').trim()).filter(Boolean);
+}
+function sceneLine(sceneIndex, k) {
+  const rows = spokenLines();
+  if (!rows.length) return '';
+  const n = SCENES.length;
+  const groups = Array.from({ length: n }, () => []);
+  rows.forEach((row, i) => groups[Math.min(n - 1, Math.floor(i * n / rows.length))].push(row));
+  const mine = groups[sceneIndex];
+  if (!mine.length) {
+    const prior = groups.slice(0, sceneIndex + 1).flat();
+    return prior.length ? prior[prior.length - 1] : rows[0];
+  }
+  return mine[Math.min(mine.length - 1, Math.floor(Math.max(0, Math.min(0.999, k)) * mine.length))];
+}
+function actionKind(line) {
+  const s = line || '';
+  if (s.includes('橡皮')) return 'eraser';
+  if (s.includes('尺')) return 'ruler';
+  if (s.includes('标签') || s.includes('便签')) return 'label';
+  if (s.includes('铅笔') || s.includes('入筒') || s.includes('笔筒')) return 'pencil';
+  return 'tidy';
+}
 function captionUnits(str) {
   const units = [];
   let buf = '';
@@ -193,71 +217,112 @@ function pencil(g, x, y, tilt) {
   fillRR(g, 0.16, -0.025, 0.06, 0.05, 0.01, PALETTE.accent);
   g.restore();
 }
+function coverBox(g, x, y, w, h, color) {
+  g.save();
+  g.beginPath();
+  g.rect(x, y, w, h);
+  g.clip();
+  fillRR(g, x, y, w, h, 0.04, color);
+  g.restore();
+}
+function forward(k) {
+  const p = Math.max(0, Math.min(1, k));
+  return p < 0.4 ? p / 0.4 * 0.72 : 0.72 + (p - 0.4) / 0.6 * 0.28;
+}
+function pencilsInto(g, k) {
+  const p = forward(k);
+  const boxX = 0.24;
+  for (let i = 0; i < 4; i++) {
+    g.save();
+    g.translate(lerp(-0.78, boxX + 0.06, p), -0.16 + i * 0.13);
+    g.scale(1.8, 2.4);
+    pencil(g, 0, 0, -0.04);
+    g.restore();
+  }
+  coverBox(g, boxX, -0.24, 0.48, 0.7, PALETTE.cloth);
+}
+function eraserInto(g, k) {
+  const p = forward(k);
+  const boxX = 0.26;
+  g.save();
+  g.translate(lerp(-0.7, boxX + 0.06, p), 0.06);
+  fillRR(g, -0.2, -0.09, 0.4, 0.18, 0.03, '#e7e2dc');
+  fillRR(g, 0.08, -0.09, 0.14, 0.18, 0.02, '#d4537e');
+  g.restore();
+  coverBox(g, boxX, -0.18, 0.42, 0.5, '#c9843a');
+}
+function rulersNeat(g, k) {
+  const p = forward(k);
+  for (let i = 0; i < 4; i++) {
+    g.save();
+    g.translate(lerp(-0.35, 0.02, p), lerp(-0.05 + (i - 1.5) * 0.2, -0.18 + i * 0.12, p));
+    g.rotate(lerp(0.9 - i * 0.45, 0, p));
+    fillRR(g, -0.36, -0.02, 0.72, 0.045, 0.01, '#c9843a');
+    g.fillStyle = '#f6efe4';
+    for (let m = 0; m < 6; m++) g.fillRect(-0.3 + m * 0.1, -0.02, 0.01, 0.018);
+    g.restore();
+  }
+}
+function labelOn(g, k) {
+  fillRR(g, 0.16, -0.08, 0.42, 0.4, 0.04, PALETTE.cloth);
+  fillRR(g, lerp(-0.55, 0.22, k), 0.02, 0.28, 0.12, 0.02, PALETTE.mist);
+}
+function tidyFinish(g, k) {
+  rulersNeat(g, 1);
+  const boxX = 0.22;
+  g.save();
+  g.translate(lerp(-0.28, boxX + 0.02, k), -0.08);
+  fillRR(g, -0.14, -0.06, 0.26, 0.12, 0.03, '#e7e2dc');
+  fillRR(g, 0.04, -0.06, 0.08, 0.12, 0.02, '#d4537e');
+  g.restore();
+  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.4, boxX, k), -0.02 + i * 0.09, -0.04);
+  coverBox(g, boxX, -0.24, 0.48, 0.72, PALETTE.cloth);
+}
+function drawKind(g, kind, k) {
+  if (kind === 'eraser') eraserInto(g, k);
+  else if (kind === 'ruler') rulersNeat(g, k);
+  else if (kind === 'label') labelOn(g, k);
+  else if (kind === 'tidy') tidyFinish(g, k);
+  else pencilsInto(g, k);
+}
 function counterSweep(g, k, t, S) {
   const cam = CAM.base();
-  CAM.dolly(cam, EASE.out(k), 1.06, 0.98);
-  const wipe = (t * 0.45) % 1;
-  plane(g, S, cam, 0.7, () => wall(g));
+  CAM.dolly(cam, k, 1.01, 1);
+  const line = sceneLine(0, k) || '铅笔入筒';
   plane(g, S, cam, 0.2, () => counter(g, 4));
   plane(g, S, cam, 0, () => {
-    fillRR(g, 0.28, -0.05, 0.42, 0.55, 0.04, PALETTE.cloth);
-    for (let i = 0; i < 5; i++) {
-      pencil(g, lerp(-0.78, 0.34, wipe) + i * 0.015, 0.02 + i * 0.08, -0.35);
-    }
-    caption(g, S, lineAt(0, '文具入盒'), -0.58, MOTION.at(t, 0.15, 0.4));
+    drawKind(g, actionKind(line), k);
+    caption(g, S, line, -0.58, 1);
   });
 }
 function sprayWipe(g, k, t, S) {
-  // truck, 4.8 s, ease-in-out, across the bottle
   const cam = CAM.base();
-  CAM.truck(cam, EASE.inOut(k), -0.04, 0.05);
-  plane(g, S, cam, 0.7, () => wall(g));
+  CAM.truck(cam, k, 0, 0.02);
+  const line = sceneLine(1, k) || '贴上标签';
   plane(g, S, cam, 0.2, () => counter(g, 6));
   plane(g, S, cam, 0, () => {
-    const pump = MOTION.at(t, CUES.spray + 0.1, 0.3);
-    const slide = (Math.sin(t * 1.8) + 1) / 2;
-    fillRR(g, 0.18, 0.02, 0.46, 0.48, 0.04, PALETTE.cloth);
-    fillRR(g, lerp(-0.05, 0.16, slide), 0.16, 0.28, 0.12, 0.02, PALETTE.mist);
-    pencil(g, lerp(-0.2, 0.2, slide), 0.34, -0.15);
-    caption(g, S, slide < 0.5 ? lineAt(1, '贴上标签') : lineAt(2, '分类摆好'), -0.58, pump);
+    drawKind(g, actionKind(line), k);
+    caption(g, S, line, -0.58, 1);
   });
 }
 function rinsePlate(g, k, t, S) {
-  // crane, 5.4 s, ease-in-out, down toward the plate
   const cam = CAM.base();
-  CAM.crane(cam, EASE.inOut(k), 0.06, -0.08);
+  CAM.crane(cam, k, 0, -0.02);
+  const line = sceneLine(2, k) || '分类摆好';
   plane(g, S, cam, 0.55, () => counter(g, 8));
   plane(g, S, cam, 0, () => {
-    const slide = (Math.sin(t * 1.6) + 1) / 2;
-    fillRR(g, 0.22, -0.08, 0.4, 0.5, 0.04, PALETTE.cloth);
-    for (let i = 0; i < 4; i++) {
-      pencil(g, lerp(-0.05, 0.2, slide), -0.02 + i * 0.1, -0.12);
-    }
-    caption(g, S, lineAt(3, '分类摆好'), -0.62, MOTION.at(t, CUES.sink, 0.35));
+    drawKind(g, actionKind(line), k);
+    caption(g, S, line, -0.62, 1);
   });
 }
 function threeChecks(g, k, t, S) {
-  // push in, 3 s, ease-out, on the checks
   const cam = CAM.base();
-  CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
-  plane(g, S, cam, 0.4, () => wall(g));
+  CAM.pushTo(cam, k, 0, 0, 1.01, 1);
+  const line = sceneLine(3, k) || '定期查看';
   plane(g, S, cam, 0, () => {
-    const sweep = (Math.sin((t - CUES.card) * 3.2) + 1) / 2;
-    g.save();
-    g.translate(lerp(-0.5, 0.5, sweep), 0.02);
-    fillRR(g, -0.34, -0.24, 0.68, 0.48, 0.04, PALETTE.cloth);
-    pencil(g, 0.05, -0.02, -0.4);
-    g.restore();
-  });
-  const title = lineAt(4, '') || lineAt(3, '定期查看');
-  caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));
-  const rows = [];
-  for (const i of [5, 6, 7]) {
-    const s = lineAt(i, '');
-    if (s && s !== title && !rows.includes(s)) rows.push(s);
-  }
-  rows.forEach((word, i) => {
-    caption(g, S, word, -0.22 + i * 0.2, MOTION.back(clamp((k - 0.08 * i) / 0.35)));
+    const kind = actionKind(line);
+    drawKind(g, kind === 'pencil' ? 'tidy' : kind, k);
+    caption(g, S, line, -0.62, 1);
   });
 }
 function score(ctx, out) {
