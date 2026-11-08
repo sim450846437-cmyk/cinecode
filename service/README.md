@@ -8,11 +8,11 @@ The render path is the kit's own. The adapter creates a film folder with `script
 
 | id | status | what this adapter does |
 |---|---|---|
-| `motion_video` | user text, typeset | Renders `home_clean_tips_v1` at the draft size, 540×960, 18 s, 24 fps. Locked text is typeset. `script.mode generate` on this task stays blocked: typesetting is not AI writing. |
+| `motion_video` | user text, or local lines when a model file is set | Renders `home_clean_tips_v1` at 540×960, 18 s, 24 fps. Locked text is typeset. `script.mode generate` calls the local GGUF, screens the lines, then typesets them into the fixed scenes. Without the model file it stays blocked. |
 | `copywriting` | local GGUF when configured | llama.cpp plus Apache-2.0 Qwen2.5-0.5B-Instruct. Set `CINECODE_LLAMA_CLI` and `CINECODE_COPY_MODEL`. Otherwise the job is `blocked`. |
 | `face_swap` | photo landmarks when configured | MediaPipe Face Landmarker and a triangle warp of two photographs. Set `CINECODE_FACE_MODEL`, `CINECODE_FACE_A`, `CINECODE_FACE_B`. A drawn face is not a result. |
 | `background_replace` | person mask when configured | MediaPipe selfie segmenter on a short pan of a photograph. Not chromakey. Set `CINECODE_SEG_MODEL` and `CINECODE_FACE_A`. |
-| `word_accurate_talking_head_edit` | Whisper word times | One Mandarin espeak-ng utterance, then faster-whisper word times, then a pause trim. Needs `espeak-ng` and `faster-whisper`. Meaning flags are not applied. |
+| `word_accurate_talking_head_edit` | uploaded audio | `POST /v1/uploads` accepts wav, mp3, or mp4. ffmpeg and faster-whisper time the words, then a pause trim runs. espeak-ng is not required. |
 | `one_click_replace` | unavailable | `replacement_target` must be null. |
 
 `profile full` (1080×1920 through `make.py final`) is `blocked`. Final waits for an independent viewer and a user OK. This adapter does not forge those gates. A passing draft is the official half-size Quick draft, mastered by `make.py`, not a signed-off final.

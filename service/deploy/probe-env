@@ -28,6 +28,17 @@ def chrome():
     return None, None
 
 
+def mem_kib(name):
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith(name + ":"):
+                    return int(line.split()[1])
+    except OSError:
+        return None
+    return None
+
+
 pid1 = ""
 try:
     pid1 = open("/proc/1/comm", encoding="utf-8", errors="replace").read().strip()
@@ -48,6 +59,11 @@ report = {
     "supervisord": bool(shutil.which("supervisord")),
     "docker": bool(shutil.which("docker")),
     "font_droid": os.path.isfile("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"),
+    "mem_available_kib": mem_kib("MemAvailable"),
+    "swap_total_kib": mem_kib("SwapTotal"),
+    "cpu_count": os.cpu_count(),
+    "serial_limit": "one heavy job and one llama thread; do not assume a larger GGUF fits",
+    "memory_rule": "loader refuses a GGUF when MemAvailable is below twice the file size",
     "target_assumption_not_a_measurement": {
         "os": "Debian 13 x86_64",
         "python": "3.13.5",

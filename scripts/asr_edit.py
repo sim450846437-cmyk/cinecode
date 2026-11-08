@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Continuous Chinese speech, then Whisper word times, then a pause trim.
+"""Word times for an uploaded recording, then a pause trim.
 
-espeak-ng speaks the whole sentence in one call. Timestamps come from
-faster-whisper (MIT weights), not from the synthesizer's per-word files.
-Meaning-changing flags are listed and not applied.
+ffmpeg decodes the file. faster-whisper (MIT weights) supplies the word
+times. espeak-ng is not used. Meaning flags are listed and not applied.
+This process does not listen, and it does not decide that a voice is human.
 """
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -15,8 +16,6 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
 FONT = "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
-SENTENCE = "请把台面擦干净。然后再把水渍擦掉。"
-SPOKEN = 'qing3 ba3 tai2 mian4 ca1 gan1 jing4. <break time="1000ms"/> ran2 hou4 zai4 ba3 shui3 zi4 ca1 diao4.'
 
 
 def run(cmd):
@@ -62,16 +61,24 @@ def picture(audio, words, dest):
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--audio", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--synthetic", choices=("0", "1"), default="0")
     args = parser.parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    if not shutil.which("espeak-ng"):
-        print(json.dumps({"error": "speech_tool_missing"}))
+    source = Path(args.audio)
+    if not source.is_file():
+        print(json.dumps({"error": "audio_missing"}))
+        return 3
+    if shutil.which("ffmpeg") is None:
+        print(json.dumps({"error": "ffmpeg_missing"}))
         return 3
     speech = out / "before.wav"
-    # One continuous utterance. The break is inside the speech, not a per-word concat.
-    run(["espeak-ng", "-m", "-v", "cmn-latn-pinyin", "-s", "118", "-w", str(speech), SPOKEN])
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-ac", "1", "-ar", "16000", str(speech)])
+    if importlib.util.find_spec("faster_whisper") is None:
+        print(json.dumps({"error": "asr_runtime_missing"}))
+        return 3
     import numpy as np
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-i", str(speech), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
@@ -79,10 +86,10 @@ def main(argv):
     audio = np.frombuffer(raw, dtype=np.float32)
     from faster_whisper import WhisperModel
     model_name = os.environ.get("CINECODE_ASR_MODEL", "base")
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=1)
     segments, info = model.transcribe(
         audio, language="zh", word_timestamps=True, vad_filter=True,
-        initial_prompt=SENTENCE, condition_on_previous_text=False)
+        condition_on_previous_text=False)
     words = []
     for seg in segments:
         for w in seg.words or []:
@@ -106,10 +113,11 @@ def main(argv):
     srt(retimed, out / "after.srt")
     cut = json.loads((out / "edit" / "cut-list.json").read_text(encoding="utf-8"))
     report = {
-        "speech": "espeak-ng cmn-latn-pinyin, one continuous call, SSML break, not per-word wavs",
-        "spoken_pinyin": SPOKEN,
-        "asr": f"faster-whisper {model_name}, MIT, word_timestamps, cpu int8",
-        "intended": SENTENCE,
+        "speech": "uploaded file decoded by ffmpeg; espeak-ng is not used",
+        "asr": f"faster-whisper {model_name}, MIT, word_timestamps, cpu int8, one thread",
+        "asr_weights": "https://huggingface.co/Systran/faster-whisper-base",
+        "synthetic_test": args.synthetic == "1",
+        "human_speech_verified": False,
         "heard_by_asr": "".join(w["word"] for w in words),
         "word_count": len(words),
         "source_duration": cut["source_duration"],

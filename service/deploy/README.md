@@ -17,6 +17,19 @@ These figures were supplied as the deployment target. `deploy/bin/probe-env` pri
 
 Python 3.9 or newer (3.13 on the intended host), Node 22 or newer, ffmpeg, ffprobe, and Chrome or Chromium. The draft template also expects the Apache-2.0 font file `DroidSansFallbackFull.ttf` at `/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf` (Debian package `fonts-droid-fallback`). The motion draft needs no pip package and no model weight.
 
+One measured host had about 3.2 GB available and no swap before a copy job. `probe-env` prints `MemAvailable` and swap on the machine you are on. The copy loader refuses to start when available memory is below twice the GGUF file size, so a 2 GB model is not assumed to fit in 3.2 GB. Heavy work is serial: one job at a time, llama.cpp uses one thread, and the draft render uses one worker. Do not run a second model beside it.
+
+Optional installs are pinned in `requirements-local.txt`. System package `libegl1` is required before MediaPipe will load. Weights are not in the archive. Fetch them yourself and check the hashes:
+
+- llama.cpp `llama-cli` build 12195 for this CPU. A build verified here has SHA256 `d6cc36e5fdc2eedd6e052dc7eb1e29d21065331e37e31f57ab2ca4720635dba2`. Set `CINECODE_LLAMA_CLI`.
+- Qwen2.5-0.5B-Instruct Q4_K_M, Apache-2.0, https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF file `qwen2.5-0.5b-instruct-q4_k_m.gguf`, SHA256 `74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db`. This is the size that fits the 3.2 GB measurement. Set `CINECODE_COPY_MODEL`.
+- The 1.5B and 3B official GGUF names are on the same allowlist, Apache-2.0, from the matching Qwen Hugging Face repos. The 3B Q4_K_M file verified here is SHA256 `626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d`. Leave it unset on a 3.2 GB host.
+- Face landmarker, Apache-2.0, https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task SHA256 `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`. Set `CINECODE_FACE_MODEL`.
+- Selfie segmenter, Apache-2.0, https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite SHA256 `191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b`. Set `CINECODE_SEG_MODEL`.
+- faster-whisper base weights, MIT, https://huggingface.co/Systran/faster-whisper-base snapshot `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66`, `model.bin` SHA256 `d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9`. The speech job does not need espeak-ng. Upload wav, mp3, or mp4 first.
+
+Synthetic portraits and synthetic speech samples are in the review zip, with their licence notes. Point `CINECODE_FACE_A` and `CINECODE_FACE_B` at those portrait files. They are not real people. The speech samples are synthetic test audio, not a human-speech acceptance.
+
 Optional local routes, all fetched by the operator and none of them packed in the archive:
 
 - Copy: an official llama.cpp `llama-cli` plus `Qwen2.5-0.5B-Instruct` Q4_K_M GGUF (Apache-2.0) from https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF . Set `CINECODE_LLAMA_CLI` and `CINECODE_COPY_MODEL`.

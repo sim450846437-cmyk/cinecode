@@ -1,0 +1,14 @@
+# Optional local routes. The motion draft does not import these.
+# Versions below were installed on Python 3.12.3. The intended host is Python 3.13.
+# If a pin has no wheel there, install the same major line and still check the
+# model hashes below. Do not vendor the weights into this package.
+faster-whisper==1.2.1
+ctranslate2==4.8.5
+tokenizers==0.23.3
+onnxruntime==1.31.1
+huggingface-hub==2.4.0
+numpy==2.5.4
+mediapipe==1.2.2
+opencv-python-headless==5.0.0.93
+# Synthetic fixture helper only. The speech job does not import it.
+pypinyin==0.55.0

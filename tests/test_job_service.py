@@ -105,10 +105,32 @@ class Validate(unittest.TestCase):
         })
         self.assertEqual(kind, "blocked")
         self.assertEqual(face["blocked_code"], "landmark_model_unavailable")
+        for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL"):
+            os.environ.pop(key, None)
         kind, norm, message = job.validate(request(script={"text": "请根据简介新写一套文案", "mode": "generate"}))
         self.assertEqual(kind, "blocked")
         self.assertEqual(norm["blocked_code"], "model_host_unavailable")
         self.assertIn("not AI writing", message)
+        kind, speech, _ = job.validate({
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1", "timeout_s": 60,
+        })
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(speech["blocked_code"], "audio_required")
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        cli = Path(holder.name) / "llama-cli"
+        model = Path(holder.name) / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        cli.write_text("x", encoding="utf-8")
+        model.write_bytes(b"x")
+        os.environ["CINECODE_LLAMA_CLI"] = str(cli)
+        os.environ["CINECODE_COPY_MODEL"] = str(model)
+        self.addCleanup(os.environ.pop, "CINECODE_LLAMA_CLI", None)
+        self.addCleanup(os.environ.pop, "CINECODE_COPY_MODEL", None)
+        kind, queued, _ = job.validate(request(brief="擦灶台的四个不同步骤", script={"mode": "generate"}))
+        self.assertEqual(kind, "ok")
+        self.assertEqual(queued["text_source"], "generate")
+        self.assertIsNone(queued["lines"])
         status, payload = job.validate(request(script={"text": "x" * 241, "mode": "locked"}))
         self.assertEqual(status, 400)
         self.assertEqual(payload["error"]["code"], "text_rejected")
@@ -146,6 +168,8 @@ class Queue(unittest.TestCase):
         status, conflict = self.submit(idempotency_key="same-key", brief="a different brief text")
         self.assertEqual(status, 409)
         self.assertEqual(conflict["error"]["code"], "idempotency_conflict")
+        for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL"):
+            os.environ.pop(key, None)
         status, blocked = self.submit(script={"text": "请创作一套新文案", "mode": "generate"}, idempotency_key="blocked-copy")
         self.assertEqual(blocked["state"], "blocked")
         self.assertEqual(blocked["error"]["code"], "model_host_unavailable")

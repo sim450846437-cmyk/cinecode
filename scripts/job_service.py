@@ -24,6 +24,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import sqlite3
@@ -49,17 +50,26 @@ ALLOWED_TEMPLATES = {"home_clean_tips_v1"}
 UNSUPPORTED = {
     "one_click_replace": "No one-click replace tool. replacement_target is rejected on motion_video.",
 }
+
+
 def _file_ready(name):
     path = os.environ.get(name, "")
     return bool(path) and os.path.isfile(path)
 
 
+def _copy_model_ready():
+    path = os.environ.get("CINECODE_COPY_MODEL", "")
+    if not _file_ready("CINECODE_LLAMA_CLI") or not path or not os.path.isfile(path):
+        return False
+    return re.search(r"qwen2\.5-(0\.5b|1\.5b|3b)-instruct-q[0-9].*\.gguf$", os.path.basename(path).lower()) is not None
+
+
 def current_capabilities():
     """Honest routes. configured is false until the operator points at local files."""
-    copy_ok = _file_ready("CINECODE_LLAMA_CLI") and _file_ready("CINECODE_COPY_MODEL")
+    copy_ok = _copy_model_ready()
     face_ok = _file_ready("CINECODE_FACE_MODEL") and _file_ready("CINECODE_FACE_A") and _file_ready("CINECODE_FACE_B")
     seg_ok = _file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_FACE_A")
-    asr_ok = shutil.which("espeak-ng") is not None and importlib.util.find_spec("faster_whisper") is not None
+    asr_ok = importlib.util.find_spec("faster_whisper") is not None and shutil.which("ffmpeg") is not None
     return [
         {
             "id": "motion_video",
@@ -67,8 +77,10 @@ def current_capabilities():
             "configured": True,
             "template_id": "home_clean_tips_v1",
             "detail": (
-                "Typesets the caller's locked text into the checked-in Quick draft and renders it with tools/make.py. "
-                "script.mode generate stays blocked on this task: typesetting is not AI writing. "
+                "Typesets locked text into the checked-in Quick draft and renders it with tools/make.py. "
+                "script.mode generate runs the local GGUF when that file is configured, screens the lines, "
+                "then typesets only the lines that passed. The template scenes stay fixed. "
+                "Without the model file, generate stays blocked. Typesetting is not AI writing. "
                 "profile full stays blocked because make.py final waits for an independent viewer and a user OK."
             ),
         },
@@ -77,9 +89,10 @@ def current_capabilities():
             "status": "local_gguf",
             "configured": copy_ok,
             "detail": (
-                "Writes Chinese lines from a brief with llama.cpp and the Apache-2.0 Qwen2.5-0.5B-Instruct GGUF "
-                "when CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL point at local files. The GGUF is not packed. "
-                "Without those files the job is blocked. The text is model output, not typesetting."
+                "Writes Chinese lines with llama.cpp and an allowlisted Apache-2.0 Qwen2.5 Instruct GGUF. "
+                "A hazard and repetition screen can block the text or ask the model to rewrite once. "
+                "The loader refuses a GGUF larger than half of MemAvailable. One thread. "
+                "Without the files the job is blocked. Typesetting is not used as a substitute."
             ),
         },
         {
@@ -89,7 +102,7 @@ def current_capabilities():
             "detail": (
                 "MediaPipe Face Landmarker plus a Delaunay warp of two operator-supplied photographs. "
                 "Set CINECODE_FACE_MODEL, CINECODE_FACE_A and CINECODE_FACE_B. Weights are not packed. "
-                "A drawn face is not a successful result."
+                "A drawn face is not a successful result. Hair and face-shape coverage are not complete."
             ),
         },
         {
@@ -106,9 +119,10 @@ def current_capabilities():
             "status": "whisper_word_times",
             "configured": asr_ok,
             "detail": (
-                "One espeak-ng Mandarin utterance, then faster-whisper word timestamps, then a pause trim. "
-                "Words are not concatenated from known durations. Meaning flags are listed and not applied. "
-                "Needs espeak-ng and the faster-whisper package. Whisper weights download on first use and are not packed."
+                "Upload a continuous recording. ffmpeg decodes it and faster-whisper returns word times, "
+                "then a pause trim runs. espeak-ng is not required. Meaning flags are listed and not applied. "
+                "Whisper weights are fetched from the official Systran faster-whisper-base repo and are not packed. "
+                "A missing upload or a missing faster-whisper install leaves the job blocked."
             ),
         },
         {"id": "one_click_replace", "status": "unavailable", "configured": False, "detail": UNSUPPORTED["one_click_replace"]},
@@ -208,7 +222,8 @@ def validate(body):
         return error_body("invalid_json", "the body must be a JSON object", "request")
     unknown = sorted(set(body) - {
         "task_type", "template_id", "asset_ids", "brief", "script", "replacement_target",
-        "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode",
+        "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode", "upload_id",
+        "synthetic_test",
     })
     if unknown:
         return error_body("unknown_field", "unknown fields: " + ", ".join(unknown), "request")
@@ -285,11 +300,16 @@ def validate(body):
         if not isinstance(script, dict) or set(script) - {"text", "mode"} or "mode" not in script:
             return error_body("invalid_field", "script must be {text, mode} or omitted", "request")
         if script.get("mode") == "generate":
-            norm = _normalized(body, brief, timeout_s, idem, output, blocked="model_host_unavailable", lines=None, source="generate")
-            return "blocked", norm, (
-                "No non-interactive model host is configured, so a brief is not turned into new lines. "
-                "Locked text can still be typeset. Typesetting is not AI writing."
-            )
+            if not _copy_model_ready():
+                norm = _normalized(body, brief, timeout_s, idem, output, blocked="model_host_unavailable", lines=None, source="generate")
+                return "blocked", norm, (
+                    "No local GGUF is configured, so a brief is not turned into new lines. "
+                    "Locked text can still be typeset. Typesetting is not AI writing."
+                )
+            if not isinstance(brief, str) or len(brief.strip()) < 4:
+                return error_body("invalid_field", "generate needs a brief of at least 4 characters", "request")
+            norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked=None, lines=None, source="generate")
+            return "ok", norm, ""
         if script.get("mode") != "locked" or not isinstance(script.get("text"), str):
             return error_body("invalid_field", "script.mode must be locked or generate, and locked text must be a string", "request")
         try:
@@ -319,19 +339,22 @@ def _validate_special(body, task):
         return common
     timeout_s, idem = common["timeout_s"], common["idempotency_key"]
 
-    def blocked(code, message, mode=None, brief=""):
+    def blocked(code, message, mode=None, brief="", upload_id=None):
         norm = {
             "task_type": task, "mode": mode, "timeout_s": timeout_s,
             "policy_id": body.get("policy_id"), "idempotency_key": idem,
             "blocked_code": code, "lines": None, "text_source": None, "brief": brief,
+            "upload_id": upload_id,
         }
         return "blocked", norm, message
 
-    def ready(mode, brief=""):
+    def ready(mode, brief="", upload_id=None):
         norm = {
             "task_type": task, "mode": mode, "timeout_s": timeout_s,
             "policy_id": body.get("policy_id"), "idempotency_key": idem,
             "blocked_code": None, "lines": None, "text_source": None, "brief": brief,
+            "upload_id": upload_id,
+            "synthetic_test": body.get("synthetic_test") is True,
         }
         return "ok", norm, ""
 
@@ -339,7 +362,7 @@ def _validate_special(body, task):
         brief = body.get("brief") or ""
         if not isinstance(brief, str) or not brief.strip() or len(brief) > 200:
             return error_body("invalid_field", "copywriting brief must be 1 to 200 characters", "request")
-        if not (_file_ready("CINECODE_LLAMA_CLI") and _file_ready("CINECODE_COPY_MODEL")):
+        if not _copy_model_ready():
             return blocked(
                 "model_host_unavailable",
                 "No local GGUF is configured. Set CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL. Typesetting is not used as a substitute.",
@@ -363,15 +386,20 @@ def _validate_special(body, task):
             )
         return ready("photo")
     if task == "word_accurate_talking_head_edit":
-        if shutil.which("espeak-ng") is None:
-            return blocked("speech_tool_missing", "espeak-ng is not on PATH. No speech was invented.", "continuous_asr")
-        if importlib.util.find_spec("faster_whisper") is None:
+        upload_id = body.get("upload_id")
+        if not isinstance(upload_id, str) or not re.fullmatch(r"[a-f0-9]{16}", upload_id):
+            return blocked(
+                "audio_required",
+                "Upload a continuous recording first. espeak-ng is not a dependency of this task.",
+                "uploaded_audio",
+            )
+        if importlib.util.find_spec("faster_whisper") is None or shutil.which("ffmpeg") is None:
             return blocked(
                 "asr_runtime_missing",
-                "faster-whisper is not installed. Per-word concatenation is not used as a substitute.",
-                "continuous_asr",
+                "faster-whisper or ffmpeg is not installed. The upload is kept and no speech was invented.",
+                "uploaded_audio",
             )
-        return ready("continuous_asr")
+        return ready("uploaded_audio", body.get("brief") or "", upload_id)
     return error_body("unsupported_capability", "task_type is not supported", "capability", http=422)
 
 
@@ -679,6 +707,23 @@ class Store:
             return None
         return path
 
+    def save_upload(self, data, kind):
+        folder = self.root / "uploads"
+        folder.mkdir(parents=True, exist_ok=True)
+        uid = secrets.token_hex(8)
+        (folder / f"{uid}.bin").write_bytes(data)
+        (folder / f"{uid}.json").write_text(json.dumps({"bytes": len(data), "kind": kind}), encoding="utf-8")
+        return uid
+
+    def upload_path(self, uid):
+        if not isinstance(uid, str) or not re.fullmatch(r"[a-f0-9]{16}", uid):
+            return None
+        path = (self.root / "uploads" / f"{uid}.bin").resolve()
+        root = (self.root / "uploads").resolve()
+        if root not in path.parents or not path.is_file():
+            return None
+        return path
+
     def log_text(self, job_id, limit=200):
         row = self.get(job_id)
         if row is None:
@@ -872,10 +917,14 @@ def prepare_project(work, request, env, ctl=None):
         if (len(brief) >= 12 and brief in page) or (len(script_text) >= 8 and script_text in page):
             raise JobFailure("isolation", "request text leaked into film.html", "security", False)
         lines = request.get("lines") or [ln for ln in manifest["locked_script"].split("\n") if ln.strip()]
+        source_name = request.get("text_source") or "template_default"
         (film / "copy.json").write_text(json.dumps({
             "lines": lines,
-            "source": request.get("text_source") or "template_default",
-            "ai_generated": False,
+            "source": source_name,
+            "ai_generated": str(source_name).startswith("model"),
+            "prose_quality_pass": False,
+            "storyboard": "home_clean_tips_v1 scenes stay fixed; lines only fill lineAt slots",
+            "listened": False,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         (film / "STATE.md").write_text((root / "STATE.md").read_text(encoding="utf-8"), encoding="utf-8")
         audit = film / "review" / "sound-audit.md"
@@ -954,14 +1003,61 @@ def sha256_file(path):
 class CinecodeDraftRunner:
     """Run the official Quick draft. User fields are not arguments."""
 
+    def _screen_copy(self, request, ctl, env):
+        out = ctl.work_dir / "output"
+        out.mkdir(parents=True, exist_ok=True)
+        dest = out / "copy-gate.json"
+        code = ctl.run(
+            [sys.executable, str(KIT / "scripts" / "copy_local.py"),
+             "--brief", request.get("brief") or "", "--out", str(dest)],
+            ctl.work_dir, env, "render")
+        payload = {}
+        if dest.is_file():
+            try:
+                payload = json.loads(dest.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+        if code == 0 and payload.get("passed_screen") and payload.get("lines"):
+            request["lines"] = payload["lines"]
+            request["text_source"] = "model_generate_revised" if payload.get("revised") else "model_generate"
+            return None
+        info = None
+        if dest.is_file():
+            info = {
+                "relative_path": "output/copy-gate.json",
+                "sha256": sha256_file(dest),
+                "bytes": dest.stat().st_size,
+                "delivered": False,
+                "listened": False,
+                "prose_quality_pass": False,
+            }
+        code_name = payload.get("error") or "copy_quality_rejected"
+        if code == 3:
+            code_name = payload.get("error") or "model_host_unavailable"
+        return {
+            "state": "blocked",
+            "artifact": info,
+            "error": {
+                "code": code_name,
+                "category": "gate",
+                "message": "The local model did not produce lines the screen could accept. No handwritten replacement was used.",
+                "problems": payload.get("problems"),
+                "retryable": False,
+            },
+        }
+
     def run(self, row, ctl):
         request = json.loads(row["request_json"])
         env = isolated_env(ctl.work_dir / "cinecode-home")
+        if request.get("text_source") == "generate":
+            screened = self._screen_copy(request, ctl, env)
+            if screened is not None:
+                return screened
         film, manifest = prepare_project(ctl.work_dir, request, env, ctl)
         ctl.check()
         delivered = sorted(film.glob("*-draft.mp4"))
         if not delivered:
-            code = ctl.run(draft_argv(film, manifest.get("workers") or 1), film, env, "render")
+            code = ctl.run(draft_argv(film, 1), film, env, "render")
             ctl.log(f"make.py exit {code}")
             delivered = sorted(film.glob("*-draft.mp4"))
         else:
@@ -992,9 +1088,14 @@ class CinecodeDraftRunner:
             "delivered": code == 0 and bool(delivered),
             "profile": "draft",
             "template_id": manifest["template_id"],
-            "generation": "deterministic_template",
-            "model_host": "unavailable",
-            "arbitrary_copy": False,
+            "generation": "local_gguf_then_typeset" if str(request.get("text_source", "")).startswith("model") else "deterministic_template",
+            "model_host": "local_file" if str(request.get("text_source", "")).startswith("model") else "unavailable",
+            "arbitrary_copy": str(request.get("text_source", "")).startswith("model"),
+            "ai_generated": str(request.get("text_source", "")).startswith("model"),
+            "prose_quality_pass": False,
+            "storyboard": "template_locked",
+            "listened": False,
+            "serial_workers": 1,
             "make_exit": code,
         })
         if code == 0 and produced.is_file():
@@ -1044,6 +1145,32 @@ class DispatchRunner:
                 [sys.executable, str(KIT / "scripts" / "copy_local.py"),
                  "--brief", request.get("brief") or "", "--out", str(produced)],
                 ctl.work_dir, env, "render")
+            if code == 4 or code == 3:
+                payload = {}
+                if produced.is_file():
+                    try:
+                        payload = json.loads(produced.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        payload = {}
+                info = {
+                    "relative_path": "output/lines.json",
+                    "sha256": sha256_file(produced) if produced.is_file() else None,
+                    "bytes": produced.stat().st_size if produced.is_file() else 0,
+                    "delivered": False,
+                    "listened": False,
+                    "prose_quality_pass": False,
+                }
+                return {
+                    "state": "blocked",
+                    "artifact": info,
+                    "error": {
+                        "code": payload.get("error") or "copy_quality_rejected",
+                        "category": "gate",
+                        "message": "The screen rejected the model text. No handwritten replacement was used.",
+                        "problems": payload.get("problems"),
+                        "retryable": False,
+                    },
+                }
         elif task == "background_replace":
             code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "segment", "--out", str(out)],
                            ctl.work_dir, env, "render")
@@ -1053,8 +1180,23 @@ class DispatchRunner:
                            ctl.work_dir, env, "render")
             produced = out / "swap-after.jpg"
         elif task == "word_accurate_talking_head_edit":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "asr_edit.py"), "--out", str(out)],
-                           ctl.work_dir, env, "render")
+            audio = ctl.store.upload_path(request.get("upload_id"))
+            if audio is None:
+                return {
+                    "state": "blocked",
+                    "artifact": None,
+                    "error": {
+                        "code": "audio_required",
+                        "category": "gate",
+                        "message": "The upload is missing. espeak-ng was not called.",
+                        "retryable": False,
+                    },
+                }
+            code = ctl.run(
+                [sys.executable, str(KIT / "scripts" / "asr_edit.py"),
+                 "--audio", str(audio), "--out", str(out),
+                 "--synthetic", "1" if request.get("synthetic_test") else "0"],
+                ctl.work_dir, env, "render")
             produced = out / "after.mp4"
         else:
             raise JobFailure("unsupported_capability", "this worker does not run that task", "capability", False)
@@ -1103,6 +1245,18 @@ def process_one(store, runner):
     finally:
         ctl.close()
     return True
+
+
+def _upload_kind(data):
+    if len(data) < 12:
+        return None
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "wav"
+    if data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return "mp3"
+    if data[4:8] == b"ftyp":
+        return "mp4"
+    return None
 
 
 class JobHandler(BaseHTTPRequestHandler):
@@ -1180,7 +1334,10 @@ class JobHandler(BaseHTTPRequestHandler):
                                            "message": "no registered artifact", "retryable": True}})
                 return
             data = target.read_bytes()
-            kind = {".mp4": "video/mp4", ".png": "image/png", ".wav": "audio/wav"}.get(target.suffix, "application/octet-stream")
+            kind = {
+                ".mp4": "video/mp4", ".png": "image/png", ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg", ".wav": "audio/wav", ".json": "application/json",
+            }.get(target.suffix, "application/octet-stream")
             self._send(200, body=data, content_type=kind)
             return
         if len(parts) == 3 and parts[:2] == ["v1", "jobs"]:
@@ -1206,6 +1363,21 @@ class JobHandler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         store = self.server.store
         parts = path.strip("/").split("/")
+        if path == "/v1/uploads":
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 12 * 1024 * 1024:
+                self._send(400, {"error": {"code": "body_too_large", "category": "request",
+                                           "message": "upload must be 1 byte to 12 MiB", "retryable": False}})
+                return
+            data = self.rfile.read(length)
+            kind = _upload_kind(data)
+            if kind is None:
+                self._send(400, {"error": {"code": "unsupported_media", "category": "request",
+                                           "message": "upload must be wav, mp3, or mp4", "retryable": False}})
+                return
+            uid = store.save_upload(data, kind)
+            self._send(201, {"upload_id": uid, "bytes": len(data), "kind": kind})
+            return
         if path == "/v1/jobs":
             body = self._read_json()
             if body is None:

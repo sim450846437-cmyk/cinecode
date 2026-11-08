@@ -140,6 +140,9 @@ def face_swap(out_dir, model):
         "sources": [str(path) for path in paths],
         "source_note": os.environ.get("CINECODE_FACE_NOTE", "operator-supplied photographs; licence is not declared by this script"),
         "inswapper": "not used",
+        "face_shape_and_hair_complete": False,
+        "hairstyle_coverage": "incomplete",
+        "limit": "Interior triangle warp of the face. Hair and the face outline are not replaced.",
     }
     (out / "swap-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if changed < 2:
@@ -199,7 +202,8 @@ def segment_video(out_dir, seg_model):
         "frames": 16,
         "person_pixel_share": round(share, 3),
         "green_screen": False,
-        "motion": "16-frame translation of the still photograph, not a green screen",
+        "motion": "16-frame translation of a still photograph",
+        "limit": "static portrait pan test, not a filmed scene",
         "source": str(src),
         "source_note": os.environ.get("CINECODE_FACE_NOTE", ""),
     }
