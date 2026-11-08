@@ -1,0 +1,25 @@
+{
+  "template_id": "home_clean_tips_v1",
+  "policy_id": "preauthorized_motion_v1",
+  "title": "台面三步",
+  "generation": "deterministic_template",
+  "language": "zh-CN",
+  "duration_s": 18,
+  "fps": 24,
+  "full": {"width": 1080, "height": 1920},
+  "draft": {"width": 540, "height": 960},
+  "supported_profile": "draft",
+  "workers": 2,
+  "locked_script": "先清台面\n喷一点\n顺纹擦开\n热水过盘\n三步做完",
+  "font": {
+    "dest": "fonts/DroidSansFallbackFull.ttf",
+    "source": "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "family": "Droid Sans Fallback",
+    "licence": "Apache-2.0",
+    "licence_url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "author": "Google Corp. / Steve Matteson, Ascender Corp.",
+    "source_url": "https://android.googlesource.com/platform/frameworks/base/",
+    "notes": "System font copied into the job workspace only. Not committed."
+  },
+  "sound_audit": "sound-audit.md"
+}

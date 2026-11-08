@@ -329,6 +329,10 @@ my-film/
 
 **能离线使用吗？** 渲染、混音和各项检查都可以离线进行，快速模式起始模板（Canvas 2D、Web Audio）也一样；搜索需要联网（参考、音乐、首次下载字体和风格，之后会被缓存）。three.js 场景需要联网一次来获取库（或使用本地副本，见 `references/looks.md` §6）；`starter/index.html` 什么都不需要。
 
+## 本地任务队列
+
+`scripts/job_service.py` 只在 `127.0.0.1` 上为一份预先允许的快速模式模板（`home_clean_tips_v1`）排队。任务在它自己建的影片目录里运行 `tools/make.py draft`，也就是这套工具的采集、母带和检查路径。它不新增模型，也不提供换脸、背景替换、口播重剪或文案接口。文案不是模板锁定稿时，任务为 `blocked`，不会渲染。`profile full` 会被挡住，因为 `make.py final` 要等独立观众和用户确认，适配器不会伪造这两步。说明见 `service/README.md`。
+
 ## 测试
 
 在工具包文件夹中运行 `python3 -m unittest discover -s tests`；在前面加上 `CINECODE_BROWSER_TESTS=1` 即可运行真实的 Chrome 和 ffmpeg 测试。测试套件还会在每次推送时于 Windows（有和没有 Git 与 bash 两种情况）和 Ubuntu 上运行。如果遇到问题，请在 GitHub 上反馈。

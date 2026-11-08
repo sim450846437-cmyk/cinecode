@@ -1,0 +1,23 @@
+# State: 台面三步 (Quick mode)
+
+- **Phase:** 4 Draft
+- **Purpose:** ad & product
+- **Idea:** an 18 second vertical motion graphic of three home counter cleaning steps, with no real face and no brand (user)
+- **Medium:** motion design (user)
+- **Format:** 18 s, 9:16, 1080x1920, 24 fps · **Loop:** no
+- **Look · mood:** papercut collage · warm kitchen paper
+- **Code fit:** drawn paper graphics on frontal planes. The counter is a speckled laminate, the wall is tile with grout, the cloth and sponge are cut paper.
+- **Camera:** flat planes, frontal staging. Moves in order: dolly in, truck, crane, push in.
+- **Tempo:** steady, 100 BPM, scenes of unequal length
+- **Palette:** bg #f3eadf wall, ink #2a211c, accent #c65a3a, cloth #2f6d62, counter #e4d2b8. The ground stays warm paper, not a blue or violet field.
+- **Finishing:** none
+- **Type:** Droid Sans Fallback (Apache-2.0), one family for the Chinese lines, local file, no network font
+- **Sound (Q4):** on-screen text and music, synthetic by choice, no narrator
+- **Music:** code (user)
+- **Voice:** none
+- **Beats:** 0.0 cloth sweeps crumbs, dolly in · 4.8 spray then a round wipe, truck · 9.6 water and sponge on a plate, crane · 15.0 three checks land, push in
+- **On-screen names:** none
+- **Ending:** the three checks hold for about 3 seconds
+- **Open notes:** none
+- **Revision round:** 0 of 2
+- **Next action:** draft through the job adapter

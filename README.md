@@ -329,6 +329,10 @@ filmim/
 
 **Çevrimdışı?** Render, miks ve kontroller çevrimdışı çalışır; Hızlı mod başlangıç dosyası da öyle (Canvas 2D, Web Audio). Aramalar ağ ister (referanslar, müzik, ilk font ve stil indirmeleri; sonra önbellekte kalır). three.js sahnesi kütüphaneleri için bir kez ağa ihtiyaç duyar (ya da yerel bir kopya, bkz. `references/looks.md` §6); `starter/index.html` hiçbir şeye ihtiyaç duymaz.
 
+## Yerel iş kuyruğu
+
+`scripts/job_service.py`, önceden izin verilmiş tek bir Hızlı mod şablonu (`home_clean_tips_v1`) için yalnızca `127.0.0.1` üzerinde dinleyen bir kuyruktur. İş, kendi açtığı film klasöründe `tools/make.py draft` çalıştırır; bu, kitin yakalama, master ve kontrol yoludur. Yeni bir model, yüz değiştirme, arka plan değiştirme, konuşan kafa kurgusu ya da metin yazarlığı API'si eklemez. Şablonun kilitli metni olmayan bir yazı `blocked` olur ve render edilmez. `profile full` bloklanır: `make.py final` bağımsız bir izleyici ve kullanıcının onayını bekler, adaptör bu iki kapıyı taklit etmez. Ayrıntı: `service/README.md`.
+
 ## Testler
 
 Kit klasöründe `python3 -m unittest discover -s tests` çalıştır; gerçek Chrome ve ffmpeg testleri için başına `CINECODE_BROWSER_TESTS=1` ekle. Test takımı her gönderimde Windows'ta (Git ve bash ile de, onlarsız da) ve Ubuntu'da da çalışır. Bir sorun görürsen GitHub'da bildir.

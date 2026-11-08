@@ -329,6 +329,10 @@ my-film/
 
 **Offline?** Rendering, mixing and the checks work offline, and so does the Quick mode starter (Canvas 2D, Web Audio); searches need the network (references, music, the first font and style downloads, which are then cached). The three.js scene needs the network once for its libraries (or a local copy, see `references/looks.md` §6); `starter/index.html` needs nothing.
 
+## Local job adapter
+
+`scripts/job_service.py` is a queue for one preauthorized Quick-mode motion template, `home_clean_tips_v1`. It listens on `127.0.0.1` only. A job creates a film folder and runs that folder's `tools/make.py draft`, which is the kit's capture, master and check path. The adapter does not add a model, a face swap, a background replacement, a talking-head editor or a copywriting API. A script that is not the template's locked lines is `blocked` and is not rendered. `profile full` is blocked, because `make.py final` waits for an independent viewer and a user OK, and the adapter does not forge either one. Details: `service/README.md`.
+
 ## Tests
 
 From the kit folder run `python3 -m unittest discover -s tests`; put `CINECODE_BROWSER_TESTS=1` in front for the real Chrome and ffmpeg tests. The suite also runs on every push on Windows (with and without Git and bash) and on Ubuntu. If something goes wrong, report it on GitHub.
