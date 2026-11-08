@@ -105,9 +105,9 @@ def current_capabilities():
             "configured": False,
             "detail": (
                 "Full head plus hair is candidate_unverified, not an implementation. "
-                "The caller's own on-camera material is authorized for this run. "
-                "The located source still is source_face_chen.jpg. The original target motion video is not located, "
-                "and a public clip is not a substitute. "
+                "The caller's own face and hair photo is the source reference. "
+                "The target motion clip may be a licensed stock performance; it does not have to be filmed by the caller. "
+                "An ordinary CC video is not face-swap permission. The Commons clip stays a background test only. "
                 "Old 3-frame files are not a rerunnable full-head video. INSwapper is inner-face only. "
                 "Wan2.2-Animate-14B is not run: the main weights are Apache-2.0, the project page also says academic demonstration, "
                 "and those two wordings are both kept. Replacement needs YOLOv10m (AGPL-3.0: internal test is not the same as closed distribution clearance, and AGPL is not a fee), "

@@ -222,7 +222,35 @@ def segment_video(out_dir, seg_model):
     return 0
 
 
-def _feather_cutout(frame, person):
+def _moving_background(shape, index, total):
+    """A background that changes every frame. It is not a pan of the person still."""
+    height, width = shape[:2]
+    phase = index / max(total, 1)
+    yy, xx = np.mgrid[0:height, 0:width]
+    band = ((xx + int(phase * width)) // max(24, width // 16)) % 2
+    wave = np.sin((yy / 22.0) + phase * 6.28318)
+    blue = np.clip(36 + 90 * band + 28 * wave, 0, 255)
+    green = np.clip(70 + 50 * (1 - band) + 40 * np.sin(phase * 6.28318), 0, 255)
+    red = np.clip(150 + 55 * wave, 0, 255)
+    return np.dstack([blue, green, red]).astype(np.uint8)
+
+
+def _mask_edge(person, confidence, previous):
+    """Boundary size, uncertain fringe, and change against the previous mask."""
+    edge = cv2.morphologyEx(person, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+    changed = 0.0 if previous is None else float(np.mean(person != previous))
+    fringe = 0.0
+    if confidence is not None:
+        fringe = float(np.mean((confidence >= 0.35) & (confidence < 0.65)))
+    return {
+        "person_share": round(float(np.mean(person > 0)), 4),
+        "boundary_share": round(float(np.mean(edge > 0)), 4),
+        "fringe_share": round(fringe, 4),
+        "mask_change": round(changed, 4),
+    }
+
+
+def _feather_cutout(frame, person, background=None):
     radius = max(7, min(frame.shape[:2]) // 70)
     if radius % 2 == 0:
         radius += 1
@@ -234,13 +262,14 @@ def _feather_cutout(frame, person):
     blur = radius * 2 + 1
     soft = cv2.GaussianBlur(core, (blur, blur), 0)
     alpha = (soft.astype(np.float32) / 255.0)[..., None]
-    bg = np.zeros_like(frame)
-    bg[:, :] = (188, 214, 232)
-    return (frame.astype(np.float32) * alpha + bg.astype(np.float32) * (1.0 - alpha)).astype(np.uint8)
+    if background is None:
+        background = np.zeros_like(frame)
+        background[:, :] = (188, 214, 232)
+    return (frame.astype(np.float32) * alpha + background.astype(np.float32) * (1.0 - alpha)).astype(np.uint8)
 
 
 def motion_video(out_dir, seg_model):
-    """Segment a real moving picture. A still-image pan is not accepted."""
+    """Segment a real moving picture onto a moving background. A still-image pan is not accepted."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     src = os.environ.get("CINECODE_MOTION_VIDEO", "")
@@ -248,11 +277,12 @@ def motion_video(out_dir, seg_model):
         print(json.dumps({"error": "motion_footage_unavailable"}))
         return 3
     start = os.environ.get("CINECODE_MOTION_SS", "0")
+    seconds = os.environ.get("CINECODE_MOTION_SECONDS", "5")
     frame_dir = out / "frames"
     frame_dir.mkdir(exist_ok=True)
     proc = subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-ss", start, "-t", "2", "-i", src,
-         "-vf", "fps=8,scale=320:-2", str(frame_dir / "f%02d.png")],
+        ["ffmpeg", "-y", "-v", "error", "-ss", start, "-t", seconds, "-i", src,
+         "-vf", "fps=10,scale=640:-2", str(frame_dir / "f%03d.png")],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     frames = sorted(frame_dir.glob("f*.png"))
     if proc.returncode != 0 or len(frames) < 8:
@@ -262,9 +292,11 @@ def motion_video(out_dir, seg_model):
         base_options=python.BaseOptions(model_asset_path=seg_model),
         output_confidence_masks=True)
     segmenter = vision.ImageSegmenter.create_from_options(options)
-    composited, shares = [], []
+    composited, edges = [], []
+    masks = []
     first = cv2.imread(str(frames[0]))
-    for path in frames:
+    previous = None
+    for index, path in enumerate(frames):
         frame = cv2.imread(str(path))
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -273,13 +305,19 @@ def motion_video(out_dir, seg_model):
         if conf.shape[:2] != frame.shape[:2]:
             conf = cv2.resize(conf, (frame.shape[1], frame.shape[0]))
         person = np.where(conf >= 0.5, 255, 0).astype(np.uint8)
-        shares.append(float(np.mean(person > 0)))
-        if not composited:
-            bg = np.zeros_like(frame)
-            bg[:, :] = (188, 214, 232)
-            cv2.imwrite(str(out / "segment-hard-edge.jpg"), np.where(person[:, :, None] == 0, bg, frame))
-        composited.append(_feather_cutout(frame, person))
-    share = float(np.mean(shares))
+        stat = _mask_edge(person, conf, previous)
+        stat["frame"] = index
+        stat["second"] = round(index / 10.0, 2)
+        edges.append(stat)
+        masks.append(person)
+        background = _moving_background(frame.shape, index, len(frames))
+        if index == 0:
+            cv2.imwrite(str(out / "segment-hard-edge.jpg"), np.where(person[:, :, None] == 0, background, frame))
+        composited.append(_feather_cutout(frame, person, background))
+        previous = person
+    share = float(np.mean([item["person_share"] for item in edges]))
+    changes = [item["mask_change"] for item in edges[1:]]
+    fringes = [item["fringe_share"] for item in edges]
     h, w = composited[0].shape[:2]
     raw = out / "frames.raw"
     with raw.open("wb") as handle:
@@ -287,28 +325,49 @@ def motion_video(out_dir, seg_model):
             handle.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).tobytes())
     enc = subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
-         "-r", "8", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+         "-r", "10", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
          str(out / "segment-after.mp4")],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     raw.unlink(missing_ok=True)
     cv2.imwrite(str(out / "segment-before.jpg"), first)
     cv2.imwrite(str(out / "segment-after.jpg"), composited[0])
+    for mark in (0, 20, 40):
+        if mark < len(frames):
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-source.jpg"), cv2.imread(str(frames[mark])))
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-mask.jpg"), masks[mark])
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-composite.jpg"), composited[mark])
+    worst = max(edges[1:], key=lambda item: item["mask_change"]) if len(edges) > 1 else edges[0]
+    softest = max(edges, key=lambda item: item["fringe_share"])
     report = {
         "segmenter": "MediaPipe selfie segmenter",
         "model_licence": "Apache-2.0",
+        "model_sha256": "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b",
         "frames": len(frames),
-        "seconds": 2,
+        "fps": 10,
+        "seconds": float(seconds),
         "person_pixel_share": round(share, 3),
+        "mean_mask_change": round(float(np.mean(changes)) if changes else 0.0, 4),
+        "max_mask_change": worst,
+        "max_fringe": softest,
+        "mean_fringe_share": round(float(np.mean(fringes)), 4),
+        "background": "moving_bands",
         "still_pan": False,
+        "face_swap_rights": False,
         "source": src,
         "source_note": os.environ.get("CINECODE_MOTION_NOTE", ""),
-        "limit": "Animated or filmed motion only. A translated still is not used.",
+        "limit": "The cutout follows the filmed motion. A translated still is not used. This clip is a background test only.",
+        "edges": edges,
     }
     (out / "segment-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if enc.returncode != 0 or not 0.02 < share < 0.9:
-        print(json.dumps({"error": "mask_not_a_person", **report}))
+        print(json.dumps({"error": "mask_not_a_person", **{k: report[k] for k in report if k != "edges"}}))
         return 1
-    print(json.dumps({"person_pixel_share": report["person_pixel_share"], "frames": len(frames)}))
+    print(json.dumps({
+        "person_pixel_share": report["person_pixel_share"],
+        "frames": len(frames),
+        "mean_mask_change": report["mean_mask_change"],
+        "mean_fringe_share": report["mean_fringe_share"],
+    }))
     return 0
 
 
