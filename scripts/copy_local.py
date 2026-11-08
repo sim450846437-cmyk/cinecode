@@ -299,6 +299,23 @@ def prompt_echo(brief, lines):
     return all(chars in brief_chars for chars in kept)
 
 
+def drop_extra_fang(lines):
+    """平放成一排 already says the action. A following 放 is a spare character, not a new sentence.
+    The model line is kept beside the repaired one. Nothing is replaced with a locked script."""
+    repaired = []
+    revisions = []
+    for line in lines:
+        new = re.sub(r"(平放成一排)放+", r"\1", str(line))
+        if new != line:
+            revisions.append({
+                "rule": "drop_extra_fang_after_pingfang_yi_pai",
+                "from": line,
+                "to": new,
+            })
+        repaired.append(new)
+    return repaired, revisions
+
+
 def repetition_codes(lines):
     found = []
     norm = [re.sub(r"\s+", "", line) for line in lines if line.strip()]
@@ -598,7 +615,8 @@ def main(argv):
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         return 1
     explained = explain_parse(text, brief)
-    lines = explained["lines"]
+    model_lines = list(explained["lines"])
+    lines, revisions = drop_extra_fang(model_lines)
     generation = {
         **gen,
         "model_file": os.path.basename(model),
@@ -610,8 +628,8 @@ def main(argv):
     problems = output_constraints(brief, lines, constraints) + repetition_codes(lines)
     if prompt_echo(brief, lines):
         problems.append("prompt_echo")
-    drafts = [lines]
-    revised = False
+    drafts = [model_lines]
+    revised = bool(revisions)
     common = {
         "model": os.path.basename(model),
         "model_size": size_name,
@@ -628,7 +646,9 @@ def main(argv):
         "truncated_tail": explained["truncated_tail"],
         "drafts_are_parsed": True,
         "ai_generated": True,
-        "revised": False,
+        "revised": bool(revisions),
+        "model_lines": model_lines,
+        "revisions": revisions,
         "prose_quality_pass": not problems,
         "listened": False,
         "brief": brief,

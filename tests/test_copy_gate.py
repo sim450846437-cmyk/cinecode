@@ -40,6 +40,17 @@ class Gate(unittest.TestCase):
         self.assertTrue(copy_local.prompt_echo(brief, echo))
         self.assertFalse(copy_local.prompt_echo(brief, own))
 
+    def test_a_spare_fang_after_yi_pai_is_dropped_and_the_model_line_stays(self):
+        raw = ["铅笔平滑进笔筒中。", "橡皮整个进入盒子内。", "尺子平放成一排放。", "三样仍分开摆放好。"]
+        lines, revisions = copy_local.drop_extra_fang(raw)
+        self.assertEqual(lines[2], "尺子平放成一排。")
+        self.assertEqual(revisions[0]["rule"], "drop_extra_fang_after_pingfang_yi_pai")
+        self.assertEqual(revisions[0]["from"], "尺子平放成一排放。")
+        self.assertEqual(raw[2], "尺子平放成一排放。")
+        untouched, none = copy_local.drop_extra_fang(["尺子平放整齐一排。", "三样仍分开摆放好。"])
+        self.assertEqual(untouched, ["尺子平放整齐一排。", "三样仍分开摆放好。"])
+        self.assertEqual(none, [])
+
 
 class ParseTrace(unittest.TestCase):
     def test_saved_clean_text_stays_two_actions_and_is_not_the_raw_field(self):

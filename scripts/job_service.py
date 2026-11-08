@@ -1303,6 +1303,8 @@ class CinecodeDraftRunner:
                     },
                 }
             request["lines"] = payload["lines"]
+            request["model_lines"] = payload.get("model_lines") or payload["lines"]
+            request["revisions"] = payload.get("revisions") or []
             request["text_source"] = "model_generate_revised" if payload.get("revised") else "model_generate"
             request["prose_quality_pass"] = True
             return None
@@ -1379,6 +1381,10 @@ class CinecodeDraftRunner:
             "arbitrary_copy": str(request.get("text_source", "")).startswith("model"),
             "ai_generated": str(request.get("text_source", "")).startswith("model"),
             "prose_quality_pass": request.get("prose_quality_pass") is True,
+            "lines": request.get("lines"),
+            "model_lines": request.get("model_lines"),
+            "revisions": request.get("revisions") or [],
+            "text_source": request.get("text_source"),
             "qualified": False,
             "storyboard": (manifest.get("topic") or {}).get("label") or manifest["template_id"],
             "listened": False,
