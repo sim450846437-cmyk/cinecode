@@ -246,19 +246,29 @@ function pencilsInto(g, k) {
   coverBox(g, boxX, -0.34, 0.16, 0.56, PALETTE.cloth);
 }
 function eraserInto(g, k) {
-  const p = forward(k);
-  const boxX = 0.16;
+  const p = Math.max(0, Math.min(1, k));
+  const boxX = 0.14;
   g.save();
-  g.translate(lerp(-0.2, 0.08, p), 0.06);
-  fillRR(g, -0.09, -0.04, 0.14, 0.08, 0.016, '#e7e2dc');
-  fillRR(g, 0.03, -0.04, 0.045, 0.08, 0.01, '#d4537e');
+  g.translate(lerp(-0.3, 0.2, p), lerp(0.16, 0, p));
+  g.rotate(lerp(0.7, 0, p));
+  fillRR(g, -0.16, -0.06, 0.24, 0.12, 0.02, '#f7f4ef');
+  fillRR(g, 0.04, -0.06, 0.1, 0.12, 0.016, '#d4537e');
   g.restore();
-  coverBox(g, boxX, -0.06, 0.16, 0.24, '#c9843a');
+  coverBox(g, boxX, -0.16, 0.24, 0.34, '#c9843a');
 }
 function rulersNeat(g, k) {
-  const p = forward(k);
+  const p = Math.max(0, Math.min(1, k));
+  const fan = [-1.05, 0.75, -0.55, 1.1];
+  const fromX = [-0.24, 0.08, -0.16, 0.12];
+  const fromY = [-0.3, -0.06, 0.14, 0.32];
   for (let i = 0; i < 4; i++) {
-    ruler(g, lerp(-0.16, -0.08, p), -0.24 + i * 0.12, lerp(0.35 - i * 0.1, 0, p));
+    g.save();
+    g.translate(lerp(fromX[i], -0.02, p), lerp(fromY[i], -0.24 + i * 0.12, p));
+    g.rotate(lerp(fan[i], 0, p));
+    fillRR(g, -0.17, -0.018, 0.34, 0.036, 0.006, '#c9843a');
+    g.fillStyle = '#f6efe4';
+    for (let m = 0; m < 6; m++) g.fillRect(-0.14 + m * 0.046, -0.018, 0.008, 0.016);
+    g.restore();
   }
 }
 function labelOn(g, k) {
@@ -267,14 +277,15 @@ function labelOn(g, k) {
 }
 function tidyFinish(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  for (let i = 0; i < 4; i++) ruler(g, -0.18, -0.3 + i * 0.11, lerp(0.08 - i * 0.02, 0, p));
+  for (let i = 0; i < 4; i++) ruler(g, lerp(-0.28, -0.16, p), -0.3 + i * 0.11, lerp(0.8 - i * 0.35, 0, p));
   g.save();
-  g.translate(lerp(-0.08, 0.02, p), 0.36);
-  fillRR(g, -0.08, -0.035, 0.12, 0.07, 0.016, '#e7e2dc');
-  fillRR(g, 0.02, -0.035, 0.04, 0.07, 0.01, '#d4537e');
+  g.translate(lerp(-0.3, 0.02, p), lerp(0.1, 0.36, p));
+  g.rotate(lerp(-0.4, 0, p));
+  fillRR(g, -0.1, -0.04, 0.16, 0.08, 0.016, '#e7e2dc');
+  fillRR(g, 0.03, -0.04, 0.05, 0.08, 0.01, '#d4537e');
   g.restore();
-  coverBox(g, -0.02, 0.26, 0.14, 0.18, '#c9843a');
-  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.02, 0.1, p), -0.28 + i * 0.12, -0.02);
+  coverBox(g, 0.0, 0.24, 0.16, 0.2, '#c9843a');
+  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.28, 0.1, p), -0.28 + i * 0.12, lerp(0.3, -0.02, p));
   coverBox(g, 0.2, -0.34, 0.16, 0.56, PALETTE.cloth);
 }
 function drawKind(g, kind, k) {
