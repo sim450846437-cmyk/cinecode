@@ -121,14 +121,50 @@ function loadCopy() {
   });
 }
 function lineAt(i, fallback) {
-  const rows = COPY_LINES && COPY_LINES.length ? COPY_LINES : [];
-  const s = rows[i] || rows[rows.length - 1] || '';
-  return s.trim() ? s : fallback;
+  if (!COPY_LINES || !COPY_LINES.length) return fallback || '';
+  const s = COPY_LINES[i];
+  return s && s.trim() ? s.trim() : '';
 }
-function lineText(g, S, str, y, k) {
-  const show = clamp(k);
-  const size = str.length > 10 ? 0.052 : 0.072;
-  text(g, S, str, 0, y, size, PALETTE.ink, 1, null, { reveal: show, spread: 0.35, weight: 700 });
+function captionLines(g, str, size, maxW) {
+  setType(g, TYPE, 'text', size, { short: 960, weight: 700 });
+  const chars = [...String(str)];
+  const lines = [];
+  let cur = '';
+  for (const ch of chars) {
+    const next = cur + ch;
+    if (g.measureText(next).width <= maxW || !cur) cur = next;
+    else { lines.push(cur); cur = ch; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function caption(g, S, str, yNorm, k) {
+  if (!str || k <= 0) return;
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = clamp(k);
+  g.fillStyle = PALETTE.ink;
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  const maxW = S.W * 0.84;
+  let size = Math.round(S.H * 0.046);
+  const minSize = Math.round(S.H * 0.026);
+  let lines = captionLines(g, str, size, maxW);
+  while ((lines.length > 2 || lines.some((ln) => g.measureText(ln).width > maxW)) && size > minSize) {
+    size -= 2;
+    lines = captionLines(g, str, size, maxW);
+  }
+  setType(g, TYPE, 'text', size, { short: S.H, weight: 700 });
+  const hr = headroom(g);
+  const step = (hr.above + hr.below) * 1.35;
+  const block = lines.length * step;
+  let top = S.H * 0.5 + yNorm * S.H * 0.42 - hr.above;
+  const low = S.H * 0.06;
+  const high = S.H * 0.94;
+  if (top < low) top = low;
+  if (top + block > high) top = Math.max(low, high - block);
+  lines.forEach((ln, i) => g.fillText(ln, S.W / 2, top + hr.above + i * step));
+  g.restore();
 }
 function counterSweep(g, k, t, S) {
   // dolly in, 4.8 s, ease-out, toward the cloth
@@ -143,8 +179,8 @@ function counterSweep(g, k, t, S) {
       const fall = Math.sin(t * 7 + i) * 0.04 + i * 0.015;
       dot(g, S, along, 0.02 + fall, 0.02, PALETTE.accent, along < lerp(-0.55, 0.62, wipe) ? 0 : 0.95);
     }
-    clothAt(g, lerp(-0.58, 0.62, wipe), 0.12 + Math.sin(t * 8) * 0.03, -0.35 + 0.5 * Math.sin(t * 6));
-    lineText(g, S, lineAt(0, '先清台面'), -0.58, MOTION.at(t, 0.15, 0.4));
+    clothAt(g, lerp(-0.7, 0.7, wipe), 0.05 + Math.sin(t * 8) * 0.08, -0.35 + 0.5 * Math.sin(t * 6));
+    caption(g, S, lineAt(0, '先清台面'), -0.58, MOTION.at(t, 0.15, 0.4));
   });
 }
 function sprayWipe(g, k, t, S) {
@@ -164,7 +200,7 @@ function sprayWipe(g, k, t, S) {
     }
     const sweep = EASE.inOut((Math.sin(t * 2.2) + 1) / 2);
     clothAt(g, lerp(0.15, 0.55, sweep), 0.22, 0.4);
-    lineText(g, S, local < 0.45 ? lineAt(1, '喷一点') : lineAt(2, '顺纹擦开'), -0.58, pump);
+    caption(g, S, local < 0.45 ? lineAt(1, '喷一点') : lineAt(2, '顺纹擦开'), -0.58, pump);
   });
 }
 function rinsePlate(g, k, t, S) {
@@ -185,33 +221,27 @@ function rinsePlate(g, k, t, S) {
     g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
     const scrub = (Math.sin(t * 5.5) + 1) / 2;
     fillRR(g, -0.2 + scrub * 0.36, 0.02 + Math.sin(t * 5.5) * 0.05, 0.2, 0.12, 0.03, PALETTE.sponge);
-    lineText(g, S, lineAt(3, '热水过盘'), -0.62, flow);
+    caption(g, S, lineAt(3, '热水过盘'), -0.62, flow);
   });
 }
 function threeChecks(g, k, t, S) {
   // push in, 3 s, ease-out, on the checks
   const cam = CAM.base();
   CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
-  const rows = [lineAt(5, '台面'), lineAt(6, '喷擦'), lineAt(7, '过盘')];
   plane(g, S, cam, 0.4, () => wall(g));
   plane(g, S, cam, 0, () => {
-    lineText(g, S, lineAt(4, '三步做完'), -0.55, MOTION.at(t, CUES.card, 0.35));
     const sweep = (Math.sin((t - CUES.card) * 4) + 1) / 2;
-    clothAt(g, lerp(-0.45, 0.45, sweep), 0.55, 0.2);
-    rows.forEach((word, i) => {
-      const p = MOTION.back(clamp((k - 0.08 * i) / 0.35));
-      const y = -0.18 + i * 0.22 + Math.sin(t * 6 + i) * 0.012;
-      g.globalAlpha = clamp(p);
-      fillRR(g, -0.34, y - 0.07, 0.68, 0.16, 0.03, '#fffaf3');
-      g.fillStyle = PALETTE.accent;
-      g.beginPath(); g.arc(-0.22, y + 0.01, 0.045, 0, TAU); g.fill();
-      if (p > 0.65) {
-        g.strokeStyle = '#fffaf3'; g.lineWidth = 0.012;
-        g.beginPath(); g.moveTo(-0.24, y + 0.01); g.lineTo(-0.22, y + 0.03); g.lineTo(-0.18, y - 0.02); g.stroke();
-      }
-      text(g, S, word, 0.06, y + 0.02, 0.055, PALETTE.ink, 1, null, { weight: 700 });
-      g.globalAlpha = 1;
-    });
+    clothAt(g, lerp(-0.7, 0.7, sweep), 0.12 + Math.sin(t * 7) * 0.1, 0.5);
+  });
+  const title = lineAt(4, '三步做完');
+  caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));
+  const rows = [];
+  for (const i of [5, 6, 7]) {
+    const s = lineAt(i, '');
+    if (s && s !== title && !rows.includes(s)) rows.push(s);
+  }
+  rows.forEach((word, i) => {
+    caption(g, S, word, -0.22 + i * 0.2, MOTION.back(clamp((k - 0.08 * i) / 0.35)));
   });
 }
 function score(ctx, out) {

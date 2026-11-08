@@ -8,11 +8,11 @@ The render path is the kit's own. The adapter creates a film folder with `script
 
 | id | status | what this adapter does |
 |---|---|---|
-| `motion_video` | user text, or local lines when a model file is set | Renders `home_clean_tips_v1` at 540×960, 18 s, 24 fps. Locked text is typeset. `script.mode generate` calls the local GGUF, screens the lines, then typesets them into the fixed scenes. Without the model file it stays blocked. |
-| `copywriting` | local GGUF when configured | llama.cpp plus Apache-2.0 Qwen2.5-0.5B-Instruct. Set `CINECODE_LLAMA_CLI` and `CINECODE_COPY_MODEL`. Otherwise the job is `blocked`. |
-| `face_swap` | photo landmarks when configured | MediaPipe Face Landmarker and a triangle warp of two photographs. Set `CINECODE_FACE_MODEL`, `CINECODE_FACE_A`, `CINECODE_FACE_B`. A drawn face is not a result. |
-| `background_replace` | person mask when configured | MediaPipe selfie segmenter on a short pan of a photograph. Not chromakey. Set `CINECODE_SEG_MODEL` and `CINECODE_FACE_A`. |
-| `word_accurate_talking_head_edit` | uploaded audio | `POST /v1/uploads` accepts wav, mp3, or mp4. ffmpeg and faster-whisper time the words, then a pause trim runs. espeak-ng is not required. |
+| `motion_video` | themed template | `home_clean_tips_v1` is counter cleaning. `stationery_tidy_v1` is putting stationery away. A brief for the other theme is `blocked`. The pictures do not follow arbitrary copy. `script.mode generate` uses the local GGUF only when that file is configured. |
+| `copywriting` | local GGUF when configured | llama.cpp plus an allowlisted Apache-2.0 Qwen GGUF. The hazard screen is not a complete safety proof. 0.5B prose is limited. |
+| `face_swap` | unavailable | Full head replacement is not wired. A triangle paste is not returned as success. |
+| `background_replace` | moving footage only | Needs `CINECODE_MOTION_VIDEO` plus the selfie segmenter. A pan of a still is not this task. |
+| `word_accurate_talking_head_edit` | uploaded audio | Bind the upload with the JSON field `upload_id`. See the curl block below. Omitting it is `blocked` / `audio_required`. |
 | `one_click_replace` | unavailable | `replacement_target` must be null. |
 
 `profile full` (1080×1920 through `make.py final`) is `blocked`. Final waits for an independent viewer and a user OK. This adapter does not forge those gates. A passing draft is the official half-size Quick draft, mastered by `make.py`, not a signed-off final.
@@ -31,7 +31,27 @@ Keep the store outside the kit and outside `~/.cinecode`. The render child does 
 
 `service/examples/motion_video.json` is a valid body. `POST /v1/jobs` returns 202, or 200 when the same idempotency key repeats the same body. The same key with a different body is 409. Unsupported task types are 422 and are not queued. Locked text is typeset. `script.mode generate` on the motion task, a missing local model file, or `profile full` is stored as `blocked` and is not rendered.
 
-`GET /v1/jobs/{id}` returns the state. `POST /v1/jobs/{id}/cancel` is idempotent: a queued job becomes `cancelled`; a running job records the request and becomes `cancelled` after the worker stops; a finished job stays finished. `GET /v1/jobs/{id}/artifact` returns the registered MP4 only, from inside that job's directory. `GET /v1/jobs/{id}/logs` is a redacted tail.
+`GET /v1/jobs/{id}` returns the state. On a generate job that used the local GGUF, top-level `model_host` is `local_file` and `generation` is `local_gguf_then_typeset`, the same values as `artifact`. A job blocked because no model file is configured keeps `model_host` `unavailable`. `POST /v1/jobs/{id}/cancel` is idempotent. `GET /v1/jobs/{id}/artifact` returns the registered file. `GET /v1/jobs/{id}/logs` is a redacted tail.
+
+Speech is upload, then a job whose body field is `upload_id`. The placeholder in `service/examples/speech_job.json` is the shape, not a recording.
+
+```bash
+TOKEN=$(cat /path/to/job-store/auth.token)
+# 1. Upload the bytes. Content-Type is audio/wav, audio/mpeg, or video/mp4.
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: audio/wav" \
+  --data-binary @recording.wav http://127.0.0.1:8765/v1/uploads
+# 201 {"upload_id":"<16 hex chars>","bytes":365076,"kind":"wav"}
+# 2. Submit. upload_id is required. Without it the job is blocked, code audio_required.
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"task_type":"word_accurate_talking_head_edit","policy_id":"preauthorized_motion_v1","timeout_s":180,"upload_id":"<upload_id from step 1>","speech_language":"zh","reference_text":"请把台面擦干净。然后再把水渍擦掉。","idempotency_key":"speech-upload-01"}' \
+  http://127.0.0.1:8765/v1/jobs
+# 3. Query
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/v1/jobs/<job_id>
+# 4. Download
+curl -sS -H "Authorization: Bearer $TOKEN" -o after.mp4 http://127.0.0.1:8765/v1/jobs/<job_id>/artifact
+```
+
+A high WER or CER against `reference_text` is `blocked` with `asr_quality_warning`. The file can still be downloaded. Meaning-changing cuts are not applied. This service does not listen to the audio.
 
 States: `queued`, `rendering`, `validating`, `succeeded`, `blocked`, `failed`, `cancel_requested`, `cancelled`, `expired`. Progress has a stage name and `percent: null`. A render that `make.py` holds back stays `blocked` with `quality_gate` even if an MP4 was registered for inspection.
 

@@ -57,7 +57,7 @@ class Validate(unittest.TestCase):
             os.environ.pop(key, None)
         items = {item["id"]: item for item in job.current_capabilities()}
         self.assertEqual(items["motion_video"]["status"], "user_text_typeset")
-        self.assertEqual(items["face_swap"]["status"], "photo_landmark_warp")
+        self.assertEqual(items["face_swap"]["status"], "head_swap_unavailable")
         self.assertFalse(items["face_swap"]["configured"])
         self.assertEqual(items["background_replace"]["status"], "selfie_segmenter")
         self.assertFalse(items["background_replace"]["configured"])
@@ -104,7 +104,7 @@ class Validate(unittest.TestCase):
             "task_type": "face_swap", "policy_id": "preauthorized_motion_v1", "timeout_s": 60,
         })
         self.assertEqual(kind, "blocked")
-        self.assertEqual(face["blocked_code"], "landmark_model_unavailable")
+        self.assertEqual(face["blocked_code"], "head_swap_unavailable")
         for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL"):
             os.environ.pop(key, None)
         kind, norm, message = job.validate(request(script={"text": "请根据简介新写一套文案", "mode": "generate"}))
@@ -131,6 +131,41 @@ class Validate(unittest.TestCase):
         self.assertEqual(kind, "ok")
         self.assertEqual(queued["text_source"], "generate")
         self.assertIsNone(queued["lines"])
+        kind, mismatch, _ = job.validate(request(brief="写四句文具收纳的步骤", script={"mode": "generate"}))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(mismatch["blocked_code"], "template_topic_mismatch")
+        kind, themed, _ = job.validate(request(
+            brief="写四句文具收纳的步骤", template_id="stationery_tidy_v1", script={"mode": "generate"}))
+        self.assertEqual(kind, "ok")
+        self.assertEqual(themed["template_id"], "stationery_tidy_v1")
+        bare = tempfile.TemporaryDirectory()
+        self.addCleanup(bare.cleanup)
+        for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL"):
+            os.environ.pop(key, None)
+        kind, blocked_norm, blocked_message = job.validate(request(
+            brief="擦灶台的四个不同步骤", script={"mode": "generate"}))
+        self.assertEqual(kind, "blocked")
+        bare_store = job.Store(bare.name)
+        _, bare_body = bare_store.submit(blocked_norm, blocked_message)
+        self.assertEqual(bare_body["model_host"], "unavailable")
+        os.environ["CINECODE_LLAMA_CLI"] = str(cli)
+        os.environ["CINECODE_COPY_MODEL"] = str(model)
+        kind, gen_norm, _ = job.validate(request(brief="擦灶台的四个不同步骤", script={"mode": "generate"}))
+        self.assertEqual(kind, "ok")
+        host = tempfile.TemporaryDirectory()
+        self.addCleanup(host.cleanup)
+        gen_store = job.Store(host.name)
+        _, gen_body = gen_store.submit(gen_norm, "")
+        gen_store.update(gen_body["job_id"], state="succeeded", artifact_json=json.dumps({
+            "relative_path": "output/film.mp4",
+            "generation": "local_gguf_then_typeset",
+            "model_host": "local_file",
+            "ai_generated": True,
+        }))
+        shown = gen_store.public(gen_store.get(gen_body["job_id"]))
+        self.assertEqual(shown["model_host"], "local_file")
+        self.assertEqual(shown["generation"], "local_gguf_then_typeset")
+        self.assertTrue(shown["artifact"]["ai_generated"])
         status, payload = job.validate(request(script={"text": "x" * 241, "mode": "locked"}))
         self.assertEqual(status, 400)
         self.assertEqual(payload["error"]["code"], "text_rejected")

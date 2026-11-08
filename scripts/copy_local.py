@@ -37,7 +37,11 @@ SYS = (
 )
 HAZARDS = (
     ("pour_back", re.compile(r"倒回|灌回|注回|倒进原|倒入原|回灌")),
-    ("mix_agents", re.compile(r"混用|混合|掺在一起|兑在一起|倒在一起")),
+    ("mix_agents", re.compile(
+        r"(清洁剂|消毒液|漂白|洁厕|氨|84消毒液).{0,8}(混用|混合)"
+        r"|(混用|混合).{0,8}(清洁剂|消毒液|漂白|洁厕|氨)"
+        r"|掺在一起|兑在一起"
+    )),
     ("bleach_acid", re.compile(r"(漂白|84).{0,8}(洁厕|氨|盐酸)|(洁厕|氨|盐酸).{0,8}(漂白|84)")),
     ("medical_claim", re.compile(r"杀菌率|99%|百分之九十九")),
 )
@@ -90,12 +94,22 @@ def repetition_codes(lines):
         found.append("too_few_lines")
     if len(set(norm)) < len(norm):
         found.append("duplicate_line")
-    counts = {}
-    chars = [ch for line in norm for ch in line if "\u4e00" <= ch <= "\u9fff"]
-    for i in range(len(chars) - 2):
-        gram = "".join(chars[i:i + 3])
-        counts[gram] = counts.get(gram, 0) + 1
-    if any(count >= 3 for count in counts.values()):
+    for line in norm:
+        chars = [ch for ch in line if "\u4e00" <= ch <= "\u9fff"]
+        seen = {}
+        for i in range(len(chars) - 2):
+            gram = "".join(chars[i:i + 3])
+            seen[gram] = seen.get(gram, 0) + 1
+        if any(count >= 2 for count in seen.values()):
+            found.append("repeated_phrase")
+            break
+    shared = {}
+    for line in norm:
+        chars = [ch for ch in line if "\u4e00" <= ch <= "\u9fff"]
+        grams = {"".join(chars[i:i + 4]) for i in range(len(chars) - 3)}
+        for gram in grams:
+            shared[gram] = shared.get(gram, 0) + 1
+    if any(count >= 3 for count in shared.values()) and "repeated_phrase" not in found:
         found.append("repeated_phrase")
     return found
 

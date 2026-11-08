@@ -178,8 +178,11 @@ def segment_video(out_dir, seg_model):
             person = cv2.resize(person, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
         bg = np.zeros_like(frame)
         bg[:, :] = (188, 214, 232)
-        comp = np.where(person[:, :, None] == 0, bg, frame)
-        frames.append(comp)
+        hard = np.where(person[:, :, None] == 0, bg, frame)
+        soft = _feather_cutout(frame, person)
+        if i == 0:
+            cv2.imwrite(str(out / "segment-hard-edge.jpg"), hard)
+        frames.append(soft)
         masks.append(person)
     raw = out / "frames.raw"
     with raw.open("wb") as handle:
@@ -189,6 +192,7 @@ def segment_video(out_dir, seg_model):
     proc = run(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
                 "-r", "8", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                 str(out / "segment-after.mp4")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw.unlink(missing_ok=True)
     if proc.returncode != 0:
         sys.exit(proc.stderr.decode()[-1500:])
     cv2.imwrite(str(out / "segment-before.jpg"), image)
@@ -203,7 +207,10 @@ def segment_video(out_dir, seg_model):
         "person_pixel_share": round(share, 3),
         "green_screen": False,
         "motion": "16-frame translation of a still photograph",
-        "limit": "static portrait pan test, not a filmed scene",
+        "still_pan": True,
+        "dynamic_person_video": False,
+        "edge": "erode by about 1/70 of the short side, then gaussian feather; hard mask kept as segment-hard-edge.jpg",
+        "limit": "static portrait pan test, not a filmed scene and not a dynamic background replacement",
         "source": str(src),
         "source_note": os.environ.get("CINECODE_FACE_NOTE", ""),
     }
@@ -215,9 +222,99 @@ def segment_video(out_dir, seg_model):
     return 0
 
 
+def _feather_cutout(frame, person):
+    radius = max(7, min(frame.shape[:2]) // 70)
+    if radius % 2 == 0:
+        radius += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
+    core = cv2.erode(person, kernel, iterations=1)
+    dist = cv2.distanceTransform(core, cv2.DIST_L2, 3)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    core[(dist > 0) & (dist < radius) & (gray < 48)] = 0
+    blur = radius * 2 + 1
+    soft = cv2.GaussianBlur(core, (blur, blur), 0)
+    alpha = (soft.astype(np.float32) / 255.0)[..., None]
+    bg = np.zeros_like(frame)
+    bg[:, :] = (188, 214, 232)
+    return (frame.astype(np.float32) * alpha + bg.astype(np.float32) * (1.0 - alpha)).astype(np.uint8)
+
+
+def motion_video(out_dir, seg_model):
+    """Segment a real moving picture. A still-image pan is not accepted."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    src = os.environ.get("CINECODE_MOTION_VIDEO", "")
+    if not src or not os.path.isfile(src):
+        print(json.dumps({"error": "motion_footage_unavailable"}))
+        return 3
+    start = os.environ.get("CINECODE_MOTION_SS", "0")
+    frame_dir = out / "frames"
+    frame_dir.mkdir(exist_ok=True)
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-ss", start, "-t", "2", "-i", src,
+         "-vf", "fps=8,scale=320:-2", str(frame_dir / "f%02d.png")],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    frames = sorted(frame_dir.glob("f*.png"))
+    if proc.returncode != 0 or len(frames) < 8:
+        print(json.dumps({"error": "motion_decode_failed", "stderr": proc.stderr.decode()[-400:]}))
+        return 1
+    options = vision.ImageSegmenterOptions(
+        base_options=python.BaseOptions(model_asset_path=seg_model),
+        output_confidence_masks=True)
+    segmenter = vision.ImageSegmenter.create_from_options(options)
+    composited, shares = [], []
+    first = cv2.imread(str(frames[0]))
+    for path in frames:
+        frame = cv2.imread(str(path))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = segmenter.segment(mp_image)
+        conf = np.squeeze(result.confidence_masks[0].numpy_view())
+        if conf.shape[:2] != frame.shape[:2]:
+            conf = cv2.resize(conf, (frame.shape[1], frame.shape[0]))
+        person = np.where(conf >= 0.5, 255, 0).astype(np.uint8)
+        shares.append(float(np.mean(person > 0)))
+        if not composited:
+            bg = np.zeros_like(frame)
+            bg[:, :] = (188, 214, 232)
+            cv2.imwrite(str(out / "segment-hard-edge.jpg"), np.where(person[:, :, None] == 0, bg, frame))
+        composited.append(_feather_cutout(frame, person))
+    share = float(np.mean(shares))
+    h, w = composited[0].shape[:2]
+    raw = out / "frames.raw"
+    with raw.open("wb") as handle:
+        for frame in composited:
+            handle.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).tobytes())
+    enc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
+         "-r", "8", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+         str(out / "segment-after.mp4")],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw.unlink(missing_ok=True)
+    cv2.imwrite(str(out / "segment-before.jpg"), first)
+    cv2.imwrite(str(out / "segment-after.jpg"), composited[0])
+    report = {
+        "segmenter": "MediaPipe selfie segmenter",
+        "model_licence": "Apache-2.0",
+        "frames": len(frames),
+        "seconds": 2,
+        "person_pixel_share": round(share, 3),
+        "still_pan": False,
+        "source": src,
+        "source_note": os.environ.get("CINECODE_MOTION_NOTE", ""),
+        "limit": "Animated or filmed motion only. A translated still is not used.",
+    }
+    (out / "segment-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if enc.returncode != 0 or not 0.02 < share < 0.9:
+        print(json.dumps({"error": "mask_not_a_person", **report}))
+        return 1
+    print(json.dumps({"person_pixel_share": report["person_pixel_share"], "frames": len(frames)}))
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cmd", choices=["face", "segment"])
+    parser.add_argument("cmd", choices=["face", "segment", "motion"])
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     if args.cmd == "face":
@@ -230,6 +327,8 @@ def main(argv):
     if not model or not os.path.isfile(model):
         print(json.dumps({"error": "segmenter_unavailable", "env": "CINECODE_SEG_MODEL"}))
         return 3
+    if args.cmd == "motion":
+        return motion_video(args.out, model)
     return segment_video(args.out, model)
 
 

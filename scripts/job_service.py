@@ -46,7 +46,7 @@ IDEM_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
 SECRET_RE = re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization|bearer)\s*[:=]\s*\S+")
 ENV_DROP = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AWS_", "GITHUB", "GH_")
 
-ALLOWED_TEMPLATES = {"home_clean_tips_v1"}
+ALLOWED_TEMPLATES = {"home_clean_tips_v1", "stationery_tidy_v1"}
 UNSUPPORTED = {
     "one_click_replace": "No one-click replace tool. replacement_target is rejected on motion_video.",
 }
@@ -67,19 +67,20 @@ def _copy_model_ready():
 def current_capabilities():
     """Honest routes. configured is false until the operator points at local files."""
     copy_ok = _copy_model_ready()
-    face_ok = _file_ready("CINECODE_FACE_MODEL") and _file_ready("CINECODE_FACE_A") and _file_ready("CINECODE_FACE_B")
-    seg_ok = _file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_FACE_A")
+    face_ok = False
+    seg_ok = _file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_MOTION_VIDEO")
     asr_ok = importlib.util.find_spec("faster_whisper") is not None and shutil.which("ffmpeg") is not None
     return [
         {
             "id": "motion_video",
             "status": "user_text_typeset",
             "configured": True,
-            "template_id": "home_clean_tips_v1",
+            "template_ids": ["home_clean_tips_v1", "stationery_tidy_v1"],
             "detail": (
-                "Typesets locked text into the checked-in Quick draft and renders it with tools/make.py. "
-                "script.mode generate runs the local GGUF when that file is configured, screens the lines, "
-                "then typesets only the lines that passed. The template scenes stay fixed. "
+                "Typesets locked text into one checked-in Quick draft and renders it with tools/make.py. "
+                "home_clean_tips_v1 is only for counter cleaning. stationery_tidy_v1 is only for putting stationery away. "
+                "A brief for the other theme is blocked. script.mode generate runs the local GGUF when configured, "
+                "screens the lines, and typesets only lines that stay on that theme. "
                 "Without the model file, generate stays blocked. Typesetting is not AI writing. "
                 "profile full stays blocked because make.py final waits for an independent viewer and a user OK."
             ),
@@ -97,12 +98,13 @@ def current_capabilities():
         },
         {
             "id": "face_swap",
-            "status": "photo_landmark_warp",
+            "status": "head_swap_unavailable",
             "configured": face_ok,
             "detail": (
-                "MediaPipe Face Landmarker plus a Delaunay warp of two operator-supplied photographs. "
-                "Set CINECODE_FACE_MODEL, CINECODE_FACE_A and CINECODE_FACE_B. Weights are not packed. "
-                "A drawn face is not a successful result. Hair and face-shape coverage are not complete."
+                "Full head replacement, face shape plus hair, is not available. "
+                "An interior triangle warp is not a successful result. "
+                "InsightFace inswapper is not used: its weights are not cleared for this package. "
+                "No other free CPU model with a clear licence was found that replaces the hair."
             ),
         },
         {
@@ -110,8 +112,9 @@ def current_capabilities():
             "status": "selfie_segmenter",
             "configured": seg_ok,
             "detail": (
-                "MediaPipe selfie segmenter on a short pan of a photograph, then a background composite. "
-                "Not chromakey. Set CINECODE_SEG_MODEL and CINECODE_FACE_A. The model is not packed."
+                "MediaPipe selfie segmenter on a moving-person video in CINECODE_MOTION_VIDEO. "
+                "A pan of a still photograph is not accepted. The model is not packed. "
+                "Without that video the job is blocked."
             ),
         },
         {
@@ -121,8 +124,8 @@ def current_capabilities():
             "detail": (
                 "Upload a continuous recording. ffmpeg decodes it and faster-whisper returns word times, "
                 "then a pause trim runs. espeak-ng is not required. Meaning flags are listed and not applied. "
-                "Whisper weights are fetched from the official Systran faster-whisper-base repo and are not packed. "
-                "A missing upload or a missing faster-whisper install leaves the job blocked."
+                "Pass reference_text to score WER and CER. A high error is blocked with asr_quality_warning "
+                "instead of a plain success. Nobody listens to the audio here."
             ),
         },
         {"id": "one_click_replace", "status": "unavailable", "configured": False, "detail": UNSUPPORTED["one_click_replace"]},
@@ -178,6 +181,18 @@ def load_manifest(template_id):
     return root, data
 
 
+def topic_fits(manifest, text):
+    """Theme keywords only. They are not a guarantee that the picture matches the words."""
+    topic = manifest.get("topic") or {}
+    need = [word for word in topic.get("need_any") or [] if word]
+    forbid = [word for word in topic.get("forbid") or [] if word]
+    if not need:
+        return True
+    if any(word in text for word in forbid):
+        return False
+    return any(word in text for word in need)
+
+
 def prepare_lines(text, limit=240, max_lines=8):
     """Turn caller text into on-screen lines. The text is data, never script source."""
     import unicodedata
@@ -196,13 +211,11 @@ def prepare_lines(text, limit=240, max_lines=8):
         part = " ".join(part.split())
         if not part:
             continue
-        latin = sum(ch.isascii() for ch in part) / len(part) > 0.8
-        width = 28 if latin else 12
-        while part:
-            lines.append(part[:width])
-            part = part[width:]
-            if len(lines) > max_lines:
-                raise ValueError(f"text wraps past {max_lines} lines")
+        if len(part) > 48:
+            raise ValueError("one line is longer than 48 characters; it is not cut off")
+        lines.append(part)
+        if len(lines) > max_lines:
+            raise ValueError(f"text wraps past {max_lines} lines")
     if not lines:
         raise ValueError("text is empty")
     return lines
@@ -223,7 +236,7 @@ def validate(body):
     unknown = sorted(set(body) - {
         "task_type", "template_id", "asset_ids", "brief", "script", "replacement_target",
         "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode", "upload_id",
-        "synthetic_test",
+        "synthetic_test", "reference_text", "speech_language",
     })
     if unknown:
         return error_body("unknown_field", "unknown fields: " + ", ".join(unknown), "request")
@@ -238,7 +251,7 @@ def validate(body):
         return error_body("unsupported_capability", "task_type is not supported", "capability", http=422)
     template_id = body.get("template_id")
     if template_id not in ALLOWED_TEMPLATES:
-        return error_body("unknown_template", "motion_video requires template_id home_clean_tips_v1", "request")
+        return error_body("unknown_template", "motion_video template_id must be home_clean_tips_v1 or stationery_tidy_v1", "request")
     try:
         _, manifest = load_manifest(template_id)
     except JobFailure as exc:
@@ -308,6 +321,13 @@ def validate(body):
                 )
             if not isinstance(brief, str) or len(brief.strip()) < 4:
                 return error_body("invalid_field", "generate needs a brief of at least 4 characters", "request")
+            if not topic_fits(manifest, brief):
+                norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked="template_topic_mismatch", lines=None, source="generate")
+                label = (manifest.get("topic") or {}).get("label") or template_id
+                return "blocked", norm, (
+                    f"This brief does not match the {label} template. "
+                    "The cleaning graphic is not used for other subjects, and the stationery graphic is not a cleaning film."
+                )
             norm = _normalized(body, brief.strip(), timeout_s, idem, output, blocked=None, lines=None, source="generate")
             return "ok", norm, ""
         if script.get("mode") != "locked" or not isinstance(script.get("text"), str):
@@ -316,6 +336,9 @@ def validate(body):
             lines = prepare_lines(script["text"])
         except ValueError as exc:
             return error_body("text_rejected", str(exc), "request")
+        if not topic_fits(manifest, "\n".join(lines)):
+            norm = _normalized(body, brief, timeout_s, idem, output, blocked="template_topic_mismatch", lines=None, source="user_locked")
+            return "blocked", norm, "Locked text does not match this template's theme."
         source = "user_locked"
     norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source)
     return "ok", norm, ""
@@ -355,6 +378,8 @@ def _validate_special(body, task):
             "blocked_code": None, "lines": None, "text_source": None, "brief": brief,
             "upload_id": upload_id,
             "synthetic_test": body.get("synthetic_test") is True,
+            "reference_text": body.get("reference_text") if isinstance(body.get("reference_text"), str) else "",
+            "speech_language": body.get("speech_language") if body.get("speech_language") in ("en", "zh") else "",
         }
         return "ok", norm, ""
 
@@ -370,23 +395,27 @@ def _validate_special(body, task):
             )
         return ready("generate", brief.strip())
     if task == "face_swap":
-        if not (_file_ready("CINECODE_FACE_MODEL") and _file_ready("CINECODE_FACE_A") and _file_ready("CINECODE_FACE_B")):
-            return blocked(
-                "landmark_model_unavailable",
-                "Photo face swap needs CINECODE_FACE_MODEL, CINECODE_FACE_A and CINECODE_FACE_B. A drawn face is not accepted.",
-                "photo",
-            )
-        return ready("photo")
+        return blocked(
+            "head_swap_unavailable",
+            "Full head replacement is not available. An interior triangle warp is not returned as success. InsightFace inswapper is not used.",
+            "unavailable",
+        )
     if task == "background_replace":
-        if not (_file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_FACE_A")):
+        if not (_file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_MOTION_VIDEO")):
             return blocked(
-                "segmenter_unavailable",
-                "Person segmentation needs CINECODE_SEG_MODEL and CINECODE_FACE_A. Green-screen chromakey is not this task.",
-                "photo",
+                "motion_footage_unavailable",
+                "Person segmentation needs CINECODE_SEG_MODEL and a moving-person file in CINECODE_MOTION_VIDEO. A still pan is not accepted.",
+                "motion",
             )
-        return ready("photo")
+        return ready("motion")
     if task == "word_accurate_talking_head_edit":
         upload_id = body.get("upload_id")
+        reference = body.get("reference_text")
+        if reference is not None and (not isinstance(reference, str) or len(reference) > 500):
+            return error_body("invalid_field", "reference_text must be at most 500 characters", "request")
+        speech_language = body.get("speech_language")
+        if speech_language is not None and speech_language not in ("en", "zh"):
+            return error_body("invalid_field", "speech_language must be en or zh", "request")
         if not isinstance(upload_id, str) or not re.fullmatch(r"[a-f0-9]{16}", upload_id):
             return blocked(
                 "audio_required",
@@ -569,13 +598,29 @@ class Store:
             artifact["local_path"] = str(local) if job_root in local.parents else None
         err = json.loads(row["error_json"]) if row["error_json"] else None
         stage = row["stage"]
+        generated = str(req.get("text_source") or "").startswith("model") or req.get("text_source") == "generate"
+        no_model = req.get("blocked_code") == "model_host_unavailable"
+        if artifact and artifact.get("model_host"):
+            model_host = artifact["model_host"]
+        elif generated and not no_model:
+            model_host = "local_file"
+        else:
+            model_host = "unavailable"
+        if artifact and artifact.get("generation"):
+            generation = artifact["generation"]
+        elif generated and model_host == "local_file":
+            generation = "local_gguf_then_typeset"
+        elif req.get("template_id") in ALLOWED_TEMPLATES:
+            generation = "deterministic_template"
+        else:
+            generation = None
         return {
             "job_id": row["id"],
             "state": row["state"],
             "task_type": req.get("task_type"),
             "template_id": req.get("template_id"),
-            "generation": "deterministic_template" if req.get("template_id") in ALLOWED_TEMPLATES else None,
-            "model_host": "unavailable",
+            "generation": generation,
+            "model_host": model_host,
             "progress": None if row["state"] in ("queued", "blocked") else {"stage": stage, "percent": None},
             "artifact": artifact,
             "error": err,
@@ -923,7 +968,7 @@ def prepare_project(work, request, env, ctl=None):
             "source": source_name,
             "ai_generated": str(source_name).startswith("model"),
             "prose_quality_pass": False,
-            "storyboard": "home_clean_tips_v1 scenes stay fixed; lines only fill lineAt slots",
+            "storyboard": (manifest.get("topic") or {}).get("label") or manifest["template_id"],
             "listened": False,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         (film / "STATE.md").write_text((root / "STATE.md").read_text(encoding="utf-8"), encoding="utf-8")
@@ -1018,6 +1063,25 @@ class CinecodeDraftRunner:
             except json.JSONDecodeError:
                 payload = {}
         if code == 0 and payload.get("passed_screen") and payload.get("lines"):
+            _, manifest = load_manifest(request["template_id"])
+            if not topic_fits(manifest, "\n".join(payload["lines"])):
+                return {
+                    "state": "blocked",
+                    "artifact": {
+                        "relative_path": "output/copy-gate.json",
+                        "sha256": sha256_file(dest),
+                        "bytes": dest.stat().st_size,
+                        "delivered": False,
+                        "listened": False,
+                        "prose_quality_pass": False,
+                    },
+                    "error": {
+                        "code": "template_topic_mismatch",
+                        "category": "gate",
+                        "message": "The model text left this template's theme. It was not typeset, and no handwritten lines were substituted.",
+                        "retryable": False,
+                    },
+                }
             request["lines"] = payload["lines"]
             request["text_source"] = "model_generate_revised" if payload.get("revised") else "model_generate"
             return None
@@ -1093,7 +1157,7 @@ class CinecodeDraftRunner:
             "arbitrary_copy": str(request.get("text_source", "")).startswith("model"),
             "ai_generated": str(request.get("text_source", "")).startswith("model"),
             "prose_quality_pass": False,
-            "storyboard": "template_locked",
+            "storyboard": (manifest.get("topic") or {}).get("label") or manifest["template_id"],
             "listened": False,
             "serial_workers": 1,
             "make_exit": code,
@@ -1172,13 +1236,20 @@ class DispatchRunner:
                     },
                 }
         elif task == "background_replace":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "segment", "--out", str(out)],
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "motion", "--out", str(out)],
                            ctl.work_dir, env, "render")
             produced = out / "segment-after.mp4"
         elif task == "face_swap":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "face", "--out", str(out)],
-                           ctl.work_dir, env, "render")
-            produced = out / "swap-after.jpg"
+            return {
+                "state": "blocked",
+                "artifact": None,
+                "error": {
+                    "code": "head_swap_unavailable",
+                    "category": "gate",
+                    "message": "Full head replacement is not available. The triangle warp is not run.",
+                    "retryable": False,
+                },
+            }
         elif task == "word_accurate_talking_head_edit":
             audio = ctl.store.upload_path(request.get("upload_id"))
             if audio is None:
@@ -1192,12 +1263,43 @@ class DispatchRunner:
                         "retryable": False,
                     },
                 }
-            code = ctl.run(
-                [sys.executable, str(KIT / "scripts" / "asr_edit.py"),
-                 "--audio", str(audio), "--out", str(out),
-                 "--synthetic", "1" if request.get("synthetic_test") else "0"],
-                ctl.work_dir, env, "render")
+            argv = [sys.executable, str(KIT / "scripts" / "asr_edit.py"),
+                    "--audio", str(audio), "--out", str(out),
+                    "--synthetic", "1" if request.get("synthetic_test") else "0"]
+            if request.get("reference_text"):
+                argv.extend(["--reference", request["reference_text"]])
+            if request.get("speech_language"):
+                argv.extend(["--language", request["speech_language"]])
+            code = ctl.run(argv, ctl.work_dir, env, "render")
             produced = out / "after.mp4"
+            if code == 4 and produced.is_file():
+                report = {}
+                report_path = out / "report.json"
+                if report_path.is_file():
+                    try:
+                        report = json.loads(report_path.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        report = {}
+                return {
+                    "state": "blocked",
+                    "artifact": {
+                        "relative_path": "output/after.mp4",
+                        "sha256": sha256_file(produced),
+                        "bytes": produced.stat().st_size,
+                        "delivered": True,
+                        "listened": False,
+                        "acceptance_pass": False,
+                        "quality_warning": "asr_quality_warning",
+                        "wer": report.get("wer"),
+                        "cer": report.get("cer"),
+                    },
+                    "error": {
+                        "code": "asr_quality_warning",
+                        "category": "gate",
+                        "message": "Recognition error against the reference is too high to count as a plain success. The file can still be downloaded. Meaning edits were not applied.",
+                        "retryable": False,
+                    },
+                }
         else:
             raise JobFailure("unsupported_capability", "this worker does not run that task", "capability", False)
         if code != 0 or not produced.is_file():

@@ -331,7 +331,7 @@ filmim/
 
 ## Yerel iş kuyruğu
 
-`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Kilitli metni Hızlı taslak `home_clean_tips_v1` içine dizer ve `tools/make.py draft` komutunu tek işçiyle çalıştırır. `script.mode generate`, `CINECODE_LLAMA_CLI` ve `CINECODE_COPY_MODEL` ayarlıysa yerel Qwen GGUF çağırır, satırları tarar ve yalnız geçen satırları dizer. Şablon sahneleri sabit kalır. Dosyalar yoksa iş `blocked` kalır; dizgi, yapay zekâ yazarlığı sayılmaz. Yükleyici, boş bellek model dosyasının iki katından azsa modeli başlatmaz. Fotoğraf yüzü ve kişi ayrımı, Apache-2.0 MediaPipe modelleri ve fotoğraflar verilince çalışır. Saç kapsamı tamamlanmış sayılmaz. Konuşma zamanı, yüklenen kaydı ffmpeg ve faster-whisper ile okur. Bu iş espeak-ng istemez. Ağırlıklar pakete girmez. `profile full` bloklu kalır. Ayrıntı: `service/README.md`.
+`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Kilitli metni Hızlı taslak `home_clean_tips_v1` içine dizer ve `tools/make.py draft` komutunu tek işçiyle çalıştırır. `script.mode generate`, `CINECODE_LLAMA_CLI` ve `CINECODE_COPY_MODEL` ayarlıysa yerel Qwen GGUF çağırır, satırları tarar ve yalnız geçen satırları dizer. Temizlik şablonu yalnızca temizlik metnini, kırtasiye şablonu yalnızca kırtasiye metnini alır. Ekrandaki satırlar ölçülür ve güvenli alana sarılır. Dosyalar yoksa iş `blocked` kalır. Yükleyici, boş bellek model dosyasının iki katından azsa modeli başlatmaz. Tam kafa değiştirme sunulmaz. Kişi ayrımı hareketli bir video ister. Konuşma işinin alanı `upload_id` dir. espeak-ng gerekmez. Ağırlıklar pakete girmez. `profile full` bloklu kalır. Ayrıntı: `service/README.md`.
 
 ## Testler
 

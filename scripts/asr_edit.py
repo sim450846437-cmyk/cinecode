@@ -64,6 +64,8 @@ def main(argv):
     parser.add_argument("--audio", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--synthetic", choices=("0", "1"), default="0")
+    parser.add_argument("--reference", default="")
+    parser.add_argument("--language", choices=("en", "zh"), default="")
     args = parser.parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -88,7 +90,7 @@ def main(argv):
     model_name = os.environ.get("CINECODE_ASR_MODEL", "base")
     model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=1)
     segments, info = model.transcribe(
-        audio, language="zh", word_timestamps=True, vad_filter=True,
+        audio, language=args.language or None, word_timestamps=True, vad_filter=True,
         condition_on_previous_text=False)
     words = []
     for seg in segments:
@@ -124,11 +126,62 @@ def main(argv):
         "edited_duration": cut["edited_duration"],
         "keep": cut["keep"],
         "applied_meaning_flags": cut["applied"],
+        "reference": args.reference,
+        "wer": None,
+        "cer": None,
+        "quality_warning": False,
+        "acceptance_pass": False,
         "listening": False,
     }
+    if args.reference.strip():
+        report["wer"] = round(wer(args.reference, report["heard_by_asr"]), 4)
+        report["cer"] = round(cer(args.reference, report["heard_by_asr"]), 4)
+        report["quality_warning"] = report["wer"] > 0.5 or report["cer"] > 0.4
+    elif letter_ratio(report["heard_by_asr"]) < 0.4:
+        report["quality_warning"] = True
     (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({k: report[k] for k in ("heard_by_asr", "source_duration", "edited_duration", "word_count", "applied_meaning_flags")}, ensure_ascii=False))
-    return 0
+    print(json.dumps({k: report[k] for k in ("heard_by_asr", "wer", "cer", "quality_warning", "source_duration", "edited_duration", "applied_meaning_flags")}, ensure_ascii=False))
+    return 4 if report["quality_warning"] else 0
+
+
+def _norm_text(text):
+    return "".join(ch.lower() for ch in text if ch.isalnum() or ("\u4e00" <= ch <= "\u9fff"))
+
+
+def _words(text):
+    return [tok for tok in "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text).split() if tok]
+
+
+def _edit(a, b):
+    if a == b:
+        return 0
+    if not a or not b:
+        return max(len(a), len(b))
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            ins, delete, sub = prev[j] + 1, cur[-1] + 1, prev[j - 1] + (ca != cb)
+            cur.append(min(ins, delete, sub))
+        prev = cur
+    return prev[-1]
+
+
+def wer(ref, hyp):
+    left, right = _words(ref), _words(hyp)
+    return _edit(left, right) / max(len(left), 1)
+
+
+def cer(ref, hyp):
+    left, right = _norm_text(ref), _norm_text(hyp)
+    return _edit(list(left), list(right)) / max(len(left), 1)
+
+
+def letter_ratio(text):
+    if not text:
+        return 0.0
+    good = sum(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in text)
+    return good / len(text)
 
 
 if __name__ == "__main__":

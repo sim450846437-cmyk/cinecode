@@ -331,7 +331,7 @@ my-film/
 
 ## 本地任务队列
 
-`scripts/job_service.py` 只在 `127.0.0.1` 上排队。锁定原文排进快速模式草稿 `home_clean_tips_v1`，再用一个工人运行 `tools/make.py draft`。`script.mode generate` 在放好 `CINECODE_LLAMA_CLI` 和 `CINECODE_COPY_MODEL` 时调用本地 Qwen GGUF，过一遍安全与重复筛查，只把通过的句子排进去。分镜仍是模板里的固定镜头。文件不在就保持 `blocked`，排字不算 AI 创作。可用内存不到模型文件两倍时，加载器不启动模型。照片换脸和人物分割要等操作者自行取得 Apache-2.0 的 MediaPipe 模型并提供照片。发型覆盖没有完成。口播时间来自上传的录音，由 ffmpeg 和 faster-whisper 处理，不依赖 espeak-ng。权重不打进包。`profile full` 仍然挡住。详见 `service/README.md`。
+`scripts/job_service.py` 只在 `127.0.0.1` 上排队。锁定原文排进快速模式草稿 `home_clean_tips_v1`，再用一个工人运行 `tools/make.py draft`。`script.mode generate` 在放好 `CINECODE_LLAMA_CLI` 和 `CINECODE_COPY_MODEL` 时调用本地 Qwen GGUF，过一遍安全与重复筛查，只把通过的句子排进去。清洁模板只收清洁文案，文具模板只收文具文案。画面上的句子按字号测量后换行，放进安全区，缺的结尾行直接省略。文件不在就保持 `blocked`。可用内存不到模型文件两倍时，加载器不启动模型。完整换头没有接入。人物分割需要运动视频，静帧平移不是这项。口播任务的字段是 `upload_id`。不依赖 espeak-ng。成功生成时顶层 `model_host` 为 `local_file`。权重不打进包。`profile full` 仍然挡住。详见 `service/README.md`。
 
 ## 测试
 

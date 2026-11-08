@@ -19,6 +19,23 @@ Python 3.9 or newer (3.13 on the intended host), Node 22 or newer, ffmpeg, ffpro
 
 One measured host had about 3.2 GB available and no swap before a copy job. `probe-env` prints `MemAvailable` and swap on the machine you are on. The copy loader refuses to start when available memory is below twice the GGUF file size, so a 2 GB model is not assumed to fit in 3.2 GB. Heavy work is serial: one job at a time, llama.cpp uses one thread, and the draft render uses one worker. Do not run a second model beside it.
 
+## Speech upload contract
+
+The job field is `upload_id`. It is the `upload_id` string from `POST /v1/uploads`. A speech job without that field is stored as `blocked` with `audio_required`. The example body is `service/examples/speech_job.json`. Replace the placeholder id. Do not guess another field name.
+
+```bash
+TOKEN=$(cat /path/to/job-store/auth.token)
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: audio/wav" \
+  --data-binary @recording.wav http://127.0.0.1:8765/v1/uploads
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"task_type":"word_accurate_talking_head_edit","policy_id":"preauthorized_motion_v1","timeout_s":180,"upload_id":"<upload_id>","speech_language":"zh","reference_text":"请把台面擦干净。然后再把水渍擦掉。","idempotency_key":"speech-upload-01"}' \
+  http://127.0.0.1:8765/v1/jobs
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/v1/jobs/<job_id>
+curl -sS -H "Authorization: Bearer $TOKEN" -o after.mp4 http://127.0.0.1:8765/v1/jobs/<job_id>/artifact
+```
+
+`home_clean_tips_v1` only accepts cleaning text. `stationery_tidy_v1` only accepts stationery text. Neither template understands arbitrary copy. On-screen lines are measured, wrapped, and kept inside a safe area. Missing ending rows are omitted instead of repeating the last line. A generate success reports top-level `model_host` `local_file`. A missing model stays `unavailable`.
+
 Optional installs are pinned in `requirements-local.txt`. System package `libegl1` is required before MediaPipe will load. Weights are not in the archive. Fetch them yourself and check the hashes:
 
 - llama.cpp `llama-cli` build 12195 for this CPU. A build verified here has SHA256 `d6cc36e5fdc2eedd6e052dc7eb1e29d21065331e37e31f57ab2ca4720635dba2`. Set `CINECODE_LLAMA_CLI`.
