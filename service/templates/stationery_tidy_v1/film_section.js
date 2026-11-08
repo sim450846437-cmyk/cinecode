@@ -262,18 +262,21 @@ function eraserInto(g, k) {
 }
 function rulersNeat(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  const fan = [-1.0, 0.8, -0.65, 1.05];
-  const fromX = [-0.28, 0.12, -0.18, 0.16];
-  const fromY = [0.14, 0.28, 0.42, 0.56];
+  const fan = [-1.25, 1.2, -1.05, 1.3];
+  const fromX = [-0.34, 0.26, -0.08, 0.3];
+  const toX = [-0.24, -0.12, -0.02, 0.08];
+  const fromY = [0.42, 0.16, 0.58, 0.28];
+  const toY = [0.18, 0.32, 0.46, 0.58];
   for (let i = 0; i < 4; i++) {
     g.save();
-    g.translate(lerp(fromX[i], -0.14, p), lerp(fromY[i], 0.12 + i * 0.12, p));
+    g.translate(lerp(fromX[i], toX[i], p), lerp(fromY[i], toY[i], p));
     g.rotate(lerp(fan[i], 0, p));
-    fillRR(g, -0.16, -0.016, 0.32, 0.032, 0.006, '#c9843a');
+    fillRR(g, -0.17, -0.035, 0.34, 0.07, 0.008, '#c9843a');
     g.fillStyle = '#f6efe4';
-    for (let m = 0; m < 6; m++) g.fillRect(-0.13 + m * 0.044, -0.016, 0.008, 0.014);
+    for (let m = 0; m < 6; m++) g.fillRect(-0.14 + m * 0.046, -0.018, 0.008, 0.016);
     g.restore();
   }
+  coverBox(g, 0.02, 0.14, 0.1, 0.52, '#c9843a');
 }
 function labelOn(g, k) {
   fillRR(g, 0.16, -0.08, 0.42, 0.4, 0.04, PALETTE.cloth);

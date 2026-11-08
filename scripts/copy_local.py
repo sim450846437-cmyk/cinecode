@@ -286,6 +286,19 @@ def output_constraints(brief, lines, constraints=None):
     return found
 
 
+def prompt_echo(brief, lines):
+    """Every kept line is already written in the brief. That is not a new draft."""
+    brief_chars = "".join(ch for ch in brief if "\u4e00" <= ch <= "\u9fff")
+    kept = []
+    for line in lines:
+        chars = "".join(ch for ch in line if "\u4e00" <= ch <= "\u9fff")
+        if chars:
+            kept.append(chars)
+    if not kept:
+        return False
+    return all(chars in brief_chars for chars in kept)
+
+
 def repetition_codes(lines):
     found = []
     norm = [re.sub(r"\s+", "", line) for line in lines if line.strip()]
@@ -593,6 +606,8 @@ def main(argv):
     }
     _, substance_problems = apply_policy(brief, lines, constraints)
     problems = output_constraints(brief, lines, constraints) + repetition_codes(lines)
+    if prompt_echo(brief, lines):
+        problems.append("prompt_echo")
     drafts = [lines]
     revised = False
     common = {
@@ -612,7 +627,7 @@ def main(argv):
         "drafts_are_parsed": True,
         "ai_generated": True,
         "revised": False,
-        "prose_quality_pass": False,
+        "prose_quality_pass": not problems,
         "listened": False,
         "brief": brief,
         "substance_policy": policy,
@@ -623,12 +638,12 @@ def main(argv):
         payload = {
             **common,
             "passed_screen": True,
-            "screen": ["input_constraints", "substance_policy", "repetition_codes"],
+            "screen": ["input_constraints", "substance_policy", "repetition_codes", "prompt_echo"],
             "text": "\n".join(lines),
         }
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
-        print(json.dumps({"lines": lines, "revised": revised, "prose_quality_pass": False}, ensure_ascii=False))
+        print(json.dumps({"lines": lines, "revised": revised, "prose_quality_pass": True}, ensure_ascii=False))
         return 0
     payload = {
         **common,

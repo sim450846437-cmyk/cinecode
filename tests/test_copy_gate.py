@@ -33,6 +33,13 @@ class Gate(unittest.TestCase):
         self.assertEqual(len(parsed), 4)
         self.assertTrue(parsed[0].startswith("先把台面"))
 
+    def test_lines_copied_from_the_brief_are_an_echo(self):
+        brief = "写四句：铅笔入笔筒、橡皮进盒、尺子排整齐、文具收好。"
+        echo = ["铅笔入笔筒", "橡皮进盒", "尺子排整齐", "文具收好。"]
+        own = ["先把铅笔竖进筒里。", "橡皮单独放进小盒。", "四把尺子并成一排。", "合上盒盖再看一眼。"]
+        self.assertTrue(copy_local.prompt_echo(brief, echo))
+        self.assertFalse(copy_local.prompt_echo(brief, own))
+
 
 class ParseTrace(unittest.TestCase):
     def test_saved_clean_text_stays_two_actions_and_is_not_the_raw_field(self):

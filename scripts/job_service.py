@@ -1118,7 +1118,7 @@ def prepare_project(work, request, env, ctl=None):
             "lines": lines,
             "source": source_name,
             "ai_generated": str(source_name).startswith("model"),
-            "prose_quality_pass": False,
+            "prose_quality_pass": request.get("prose_quality_pass") is True,
             "storyboard": (manifest.get("topic") or {}).get("label") or manifest["template_id"],
             "listened": False,
         }, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -1214,7 +1214,7 @@ class CinecodeDraftRunner:
                 payload = json.loads(dest.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 payload = {}
-        if code == 0 and payload.get("passed_screen") and payload.get("lines"):
+        if code == 0 and payload.get("passed_screen") and payload.get("prose_quality_pass") is True and payload.get("lines"):
             _, manifest = load_manifest(request["template_id"])
             unseen = template_cannot_show(manifest, "\n".join(payload["lines"]))
             if unseen:
@@ -1255,6 +1255,7 @@ class CinecodeDraftRunner:
                 }
             request["lines"] = payload["lines"]
             request["text_source"] = "model_generate_revised" if payload.get("revised") else "model_generate"
+            request["prose_quality_pass"] = True
             return None
         info = None
         if dest.is_file():
@@ -1264,7 +1265,8 @@ class CinecodeDraftRunner:
                 "bytes": dest.stat().st_size,
                 "delivered": False,
                 "listened": False,
-                "prose_quality_pass": False,
+                "prose_quality_pass": payload.get("prose_quality_pass") is True,
+                "qualified": False,
             }
         code_name = payload.get("error") or "copy_quality_rejected"
         if code == 3:
@@ -1327,7 +1329,8 @@ class CinecodeDraftRunner:
             "model_host": "local_file" if str(request.get("text_source", "")).startswith("model") else "unavailable",
             "arbitrary_copy": str(request.get("text_source", "")).startswith("model"),
             "ai_generated": str(request.get("text_source", "")).startswith("model"),
-            "prose_quality_pass": False,
+            "prose_quality_pass": request.get("prose_quality_pass") is True,
+            "qualified": False,
             "storyboard": (manifest.get("topic") or {}).get("label") or manifest["template_id"],
             "listened": False,
             "serial_workers": 1,
@@ -1475,6 +1478,40 @@ class DispatchRunner:
                 }
         else:
             raise JobFailure("unsupported_capability", "this worker does not run that task", "capability", False)
+        if task == "copywriting" and produced.is_file():
+            try:
+                payload = json.loads(produced.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            quality = payload.get("prose_quality_pass") is True
+            info = {
+                "relative_path": "output/lines.json",
+                "sha256": sha256_file(produced),
+                "bytes": produced.stat().st_size,
+                "delivered": False,
+                "listened": False,
+                "acceptance_pass": False,
+                "qualified": False,
+                "prose_quality_pass": quality,
+                "ai_generated": True,
+                "lines": payload.get("lines") or [],
+                "model_file": (payload.get("generation") or {}).get("model_file"),
+                "model_sha256": (payload.get("generation") or {}).get("model_sha256"),
+            }
+            if code != 0 or not quality:
+                return {
+                    "state": "blocked",
+                    "artifact": info,
+                    "error": {
+                        "code": payload.get("error") or "copy_quality_rejected",
+                        "category": "gate",
+                        "message": "Model text did not pass the copy screen. It is not queued as a film.",
+                        "problems": payload.get("problems"),
+                        "retryable": False,
+                    },
+                }
+            info["delivered"] = True
+            return {"state": "succeeded", "artifact": info, "error": None}
         if code != 0 or not produced.is_file():
             raise JobFailure("render_failed", f"{task} exited {code}", "render", code not in (2, 3))
         speech_report = {}
