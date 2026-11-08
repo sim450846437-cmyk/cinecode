@@ -45,7 +45,7 @@ const SCENES = [
   { chapter: 'C1', from: CUES.sweep, to: CUES.spray, draw: counterSweep, action: 'a pencil slides across the desk into the box', amb: { kind: 'room', gain: 0.05 } },
   { chapter: 'C1', from: CUES.spray, to: CUES.sink, draw: sprayWipe, action: 'a label is pressed onto the box', in: { type: 'wipe', dur: 0.36, dir: 1 }, amb: { kind: 'room', gain: 0.045 } },
   { chapter: 'C1', from: CUES.sink, to: CUES.card, draw: rinsePlate, action: 'pens drop into sorted rows', in: { type: 'cut' }, amb: { kind: 'room', gain: 0.03 } },
-  { chapter: 'C1', from: CUES.card, to: CUES.end, draw: threeChecks, action: 'three checks land one after another', in: { type: 'dissolve', dur: 0.32 }, amb: { kind: 'room', gain: 0.04 } },
+  { chapter: 'C1', from: CUES.card, to: CUES.end, draw: threeChecks, action: 'three checks land one after another', in: { type: 'cut' }, amb: { kind: 'room', gain: 0.04 } },
 ];
 const SFX = [
   { at: 0.2, voice: 'foley', kind: 'step', gain: 0.2, wet: 0.05 },
@@ -238,12 +238,16 @@ function forward(k) {
   return p < 0.4 ? p / 0.4 * 0.72 : 0.72 + (p - 0.4) / 0.6 * 0.28;
 }
 function pencilsInto(g, k) {
-  const boxX = 0.2;
+  const p = Math.max(0, Math.min(1, k));
+  const rush = Math.min(1, p / 0.42);
+  const settle = Math.max(0, (p - 0.42) / 0.58);
+  const boxX = lerp(0.48, 0.22, rush) - settle * 0.08;
   for (let i = 0; i < 4; i++) {
-    const local = Math.max(0, Math.min(1, (k - i * 0.1) / 0.7));
-    pencil(g, lerp(-0.22, 0.12, local), -0.28 + i * 0.12, -0.03);
+    const lag = i * 0.07;
+    const local = Math.max(0, Math.min(1, (rush - lag) / (1 - 3 * 0.07)));
+    pencil(g, lerp(-0.36, 0.0, local) + settle * 0.12, -0.18 + i * 0.13 + settle * 0.05, lerp(0.18, -0.02, local));
   }
-  coverBox(g, boxX, -0.34, 0.16, 0.56, PALETTE.cloth);
+  coverBox(g, boxX, -0.14 + settle * 0.05, 0.2, 0.6, PALETTE.cloth);
 }
 function eraserInto(g, k) {
   const p = Math.max(0, Math.min(1, k));
@@ -277,16 +281,15 @@ function labelOn(g, k) {
 }
 function tidyFinish(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  for (let i = 0; i < 4; i++) ruler(g, lerp(-0.28, -0.16, p), -0.3 + i * 0.11, lerp(0.8 - i * 0.35, 0, p));
+  for (let i = 0; i < 4; i++) ruler(g, lerp(0.04, -0.26, p), 0.4 + i * 0.1, lerp((i - 1.5) * 0.4, 0, p));
   g.save();
-  g.translate(lerp(-0.3, 0.02, p), lerp(0.1, 0.36, p));
-  g.rotate(lerp(-0.4, 0, p));
-  fillRR(g, -0.1, -0.04, 0.16, 0.08, 0.016, '#e7e2dc');
-  fillRR(g, 0.03, -0.04, 0.05, 0.08, 0.01, '#d4537e');
+  g.translate(lerp(-0.22, 0.0, p), 0.82);
+  fillRR(g, -0.08, -0.03, 0.12, 0.06, 0.012, '#e7e2dc');
+  fillRR(g, 0.02, -0.03, 0.04, 0.06, 0.008, '#d4537e');
   g.restore();
-  coverBox(g, 0.0, 0.24, 0.16, 0.2, '#c9843a');
-  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.28, 0.1, p), -0.28 + i * 0.12, lerp(0.3, -0.02, p));
-  coverBox(g, 0.2, -0.34, 0.16, 0.56, PALETTE.cloth);
+  coverBox(g, 0.04, 0.74, 0.14, 0.14, '#c9843a');
+  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.16, 0.0, p), -0.18 + i * 0.1, -0.02);
+  coverBox(g, 0.22, -0.22, 0.16, 0.48, PALETTE.cloth);
 }
 function drawKind(g, kind, k) {
   if (kind === 'eraser') eraserInto(g, k);
