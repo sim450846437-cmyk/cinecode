@@ -33,7 +33,9 @@ Keep the store outside the kit and outside `~/.cinecode`. The render child does 
 
 `GET /v1/jobs/{id}` returns the state. On a generate job that used the local GGUF, top-level `model_host` is `local_file` and `generation` is `local_gguf_then_typeset`, the same values as `artifact`. A job blocked because no model file is configured keeps `model_host` `unavailable`. `POST /v1/jobs/{id}/cancel` is idempotent. `GET /v1/jobs/{id}/artifact` returns the registered file. `GET /v1/jobs/{id}/logs` is a redacted tail.
 
-Speech is upload, then a job whose body field is `upload_id`. The placeholder in `service/examples/speech_job.json` is the shape, not a recording.
+Speech is upload, then a job whose body field is `upload_id`. `audio_source` is `synthetic`, `declared_recording`, or omitted. Omitted is stored as `unknown`. An upload is not treated as a human voice, and `synthetic_test: false` is not a human claim. The placeholder in `service/examples/speech_job.json` is the shape, not a recording.
+
+When `script.mode` is `locked`, the locked text is what the template draws and it must match that template. The brief is metadata: it is stored and not typeset, and it does not have to repeat the theme. A stationery brief with a cleaning lock on `home_clean_tips_v1` is accepted because the drawn lines are the cleaning lock. A stationery lock on that template is `template_topic_mismatch`. When `script.mode` is `generate`, the brief is the generation input and must match the template.
 
 ```bash
 TOKEN=$(cat /path/to/job-store/auth.token)

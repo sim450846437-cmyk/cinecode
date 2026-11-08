@@ -181,6 +181,18 @@ def load_manifest(template_id):
     return root, data
 
 
+def declared_audio_source(body):
+    """Caller declaration only. An upload is not evidence that a person spoke."""
+    raw = body.get("audio_source")
+    if raw is None and body.get("synthetic_test") is True:
+        raw = "synthetic"
+    if raw is None or raw == "":
+        return "unknown"
+    if raw in ("synthetic", "declared_recording", "unknown"):
+        return raw
+    return "invalid"
+
+
 def topic_fits(manifest, text):
     """Theme keywords only. They are not a guarantee that the picture matches the words."""
     topic = manifest.get("topic") or {}
@@ -236,7 +248,7 @@ def validate(body):
     unknown = sorted(set(body) - {
         "task_type", "template_id", "asset_ids", "brief", "script", "replacement_target",
         "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode", "upload_id",
-        "synthetic_test", "reference_text", "speech_language",
+        "synthetic_test", "reference_text", "speech_language", "audio_source",
     })
     if unknown:
         return error_body("unknown_field", "unknown fields: " + ", ".join(unknown), "request")
@@ -338,7 +350,10 @@ def validate(body):
             return error_body("text_rejected", str(exc), "request")
         if not topic_fits(manifest, "\n".join(lines)):
             norm = _normalized(body, brief, timeout_s, idem, output, blocked="template_topic_mismatch", lines=None, source="user_locked")
-            return "blocked", norm, "Locked text does not match this template's theme."
+            return "blocked", norm, (
+                "Locked text is what this template draws, and it does not match the template theme. "
+                "The brief is metadata and is not typeset."
+            )
         source = "user_locked"
     norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source)
     return "ok", norm, ""
@@ -377,7 +392,7 @@ def _validate_special(body, task):
             "policy_id": body.get("policy_id"), "idempotency_key": idem,
             "blocked_code": None, "lines": None, "text_source": None, "brief": brief,
             "upload_id": upload_id,
-            "synthetic_test": body.get("synthetic_test") is True,
+            "audio_source": declared_audio_source(body),
             "reference_text": body.get("reference_text") if isinstance(body.get("reference_text"), str) else "",
             "speech_language": body.get("speech_language") if body.get("speech_language") in ("en", "zh") else "",
         }
@@ -416,6 +431,12 @@ def _validate_special(body, task):
         speech_language = body.get("speech_language")
         if speech_language is not None and speech_language not in ("en", "zh"):
             return error_body("invalid_field", "speech_language must be en or zh", "request")
+        if declared_audio_source(body) == "invalid":
+            return error_body(
+                "invalid_field",
+                "audio_source must be synthetic, declared_recording, or unknown. An upload is not labeled as a human voice.",
+                "request",
+            )
         if not isinstance(upload_id, str) or not re.fullmatch(r"[a-f0-9]{16}", upload_id):
             return blocked(
                 "audio_required",
@@ -444,6 +465,7 @@ def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source):
         "script": script,
         "lines": lines,
         "text_source": source,
+        "brief_role": "generation_input" if source == "generate" else "metadata",
         "replacement_target": None,
         "output": {
             "profile": output.get("profile"),
@@ -621,6 +643,8 @@ class Store:
             "template_id": req.get("template_id"),
             "generation": generation,
             "model_host": model_host,
+            "brief_role": req.get("brief_role"),
+            "audio_source": req.get("audio_source"),
             "progress": None if row["state"] in ("queued", "blocked") else {"stage": stage, "percent": None},
             "artifact": artifact,
             "error": err,
@@ -1265,7 +1289,7 @@ class DispatchRunner:
                 }
             argv = [sys.executable, str(KIT / "scripts" / "asr_edit.py"),
                     "--audio", str(audio), "--out", str(out),
-                    "--synthetic", "1" if request.get("synthetic_test") else "0"]
+                    "--audio-source", request.get("audio_source") or "unknown"]
             if request.get("reference_text"):
                 argv.extend(["--reference", request["reference_text"]])
             if request.get("speech_language"):
@@ -1304,6 +1328,13 @@ class DispatchRunner:
             raise JobFailure("unsupported_capability", "this worker does not run that task", "capability", False)
         if code != 0 or not produced.is_file():
             raise JobFailure("render_failed", f"{task} exited {code}", "render", code not in (2, 3))
+        speech_report = {}
+        report_path = out / "report.json"
+        if task == "word_accurate_talking_head_edit" and report_path.is_file():
+            try:
+                speech_report = json.loads(report_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                speech_report = {}
         info = {
             "relative_path": f"output/{produced.name}",
             "sha256": sha256_file(produced),
@@ -1315,7 +1346,12 @@ class DispatchRunner:
             "arbitrary_copy": task == "copywriting",
             "ai_generated": task == "copywriting",
             "listened": False,
+            "acceptance_pass": False,
         }
+        if speech_report.get("wer") is not None:
+            info["wer"] = speech_report["wer"]
+            info["cer"] = speech_report["cer"]
+            info["heard_by_asr"] = speech_report["heard_by_asr"]
         return {"state": "succeeded", "artifact": info, "error": None}
 
 

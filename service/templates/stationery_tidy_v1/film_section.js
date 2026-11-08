@@ -174,7 +174,7 @@ function pencil(g, x, y, tilt) {
 function counterSweep(g, k, t, S) {
   const cam = CAM.base();
   CAM.dolly(cam, EASE.out(k), 1.06, 0.98);
-  const wipe = EASE.out(Math.min(1, (t - CUES.sweep) / 3.2));
+  const wipe = (Math.sin(t * 1.7) + 1) / 2;
   plane(g, S, cam, 0.7, () => wall(g));
   plane(g, S, cam, 0.2, () => counter(g, 4));
   plane(g, S, cam, 0, () => {
@@ -221,9 +221,12 @@ function threeChecks(g, k, t, S) {
   CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
   plane(g, S, cam, 0.4, () => wall(g));
   plane(g, S, cam, 0, () => {
-    const sweep = (Math.sin((t - CUES.card) * 4) + 1) / 2;
-    clothAt(g, lerp(-0.62, 0.62, sweep), 0.35 + Math.sin(t * 6) * 0.12, 0.4);
-    pencil(g, lerp(0.5, -0.5, sweep), 0.15, -0.8);
+    const sweep = (Math.sin((t - CUES.card) * 3.2) + 1) / 2;
+    g.save();
+    g.translate(lerp(-0.5, 0.5, sweep), 0.02);
+    fillRR(g, -0.34, -0.24, 0.68, 0.48, 0.04, PALETTE.cloth);
+    pencil(g, 0.05, -0.02, -0.4);
+    g.restore();
   });
   const title = lineAt(4, '定期查看');
   caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));

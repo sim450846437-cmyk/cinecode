@@ -3,6 +3,7 @@
   "policy_id": "preauthorized_motion_v1",
   "timeout_s": 180,
   "upload_id": "0123456789abcdef",
+  "audio_source": "unknown",
   "speech_language": "zh",
   "reference_text": "请把台面擦干净。然后再把水渍擦掉。",
   "idempotency_key": "speech-upload-01"

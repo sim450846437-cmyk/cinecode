@@ -170,7 +170,7 @@ function counterSweep(g, k, t, S) {
   // dolly in, 4.8 s, ease-out, toward the cloth
   const cam = CAM.base();
   CAM.dolly(cam, EASE.out(k), 1.06, 0.98);
-  const wipe = EASE.out(Math.min(1, (t - CUES.sweep) / 3.2));
+  const wipe = (Math.sin(t * 1.7) + 1) / 2;
   plane(g, S, cam, 0.7, () => wall(g));
   plane(g, S, cam, 0.2, () => counter(g, 4));
   plane(g, S, cam, 0, () => {
@@ -230,8 +230,12 @@ function threeChecks(g, k, t, S) {
   CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
   plane(g, S, cam, 0.4, () => wall(g));
   plane(g, S, cam, 0, () => {
-    const sweep = (Math.sin((t - CUES.card) * 4) + 1) / 2;
-    clothAt(g, lerp(-0.7, 0.7, sweep), 0.12 + Math.sin(t * 7) * 0.1, 0.5);
+    const sweep = (Math.sin((t - CUES.card) * 3.2) + 1) / 2;
+    g.save();
+    g.translate(lerp(-0.55, 0.55, sweep), 0.08);
+    g.rotate(0.35);
+    fillRR(g, -0.36, -0.2, 0.72, 0.4, 0.05, PALETTE.cloth);
+    g.restore();
   });
   const title = lineAt(4, '三步做完');
   caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));

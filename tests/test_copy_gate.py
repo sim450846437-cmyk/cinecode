@@ -32,5 +32,8 @@ class Gate(unittest.TestCase):
 
     def test_word_error_is_zero_only_for_the_same_words(self):
         self.assertEqual(asr_edit.wer("He hoped there would be stew.", "he hoped there would be stew"), 0.0)
+        self.assertLess(asr_edit.wer(
+            "A COLD LUCID INDIFFERENCE REIGNED IN HIS SOUL",
+            "A cold lucid indifference reigned in his soul."), 0.01)
         self.assertGreater(asr_edit.wer("He hoped there would be stew.", "completely different words here"), 0.5)
         self.assertEqual(asr_edit.cer("台面", "台面"), 0.0)

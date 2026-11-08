@@ -34,7 +34,9 @@ curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/v1/jobs/<job_id
 curl -sS -H "Authorization: Bearer $TOKEN" -o after.mp4 http://127.0.0.1:8765/v1/jobs/<job_id>/artifact
 ```
 
-`home_clean_tips_v1` only accepts cleaning text. `stationery_tidy_v1` only accepts stationery text. Neither template understands arbitrary copy. On-screen lines are measured, wrapped, and kept inside a safe area. Missing ending rows are omitted instead of repeating the last line. A generate success reports top-level `model_host` `local_file`. A missing model stays `unavailable`.
+`home_clean_tips_v1` only draws cleaning text. `stationery_tidy_v1` only draws stationery text. When `script.mode` is `locked`, those locked lines are the picture text and must match the template. The brief is metadata and is not required to match. When `script.mode` is `generate`, the brief is the input and must match. On-screen lines are measured and wrapped. A generate success reports top-level `model_host` `local_file`. A missing model stays `unavailable`.
+
+`audio_source` on a speech job is `synthetic`, `declared_recording`, or omitted. Omitted is stored as `unknown`. The service does not turn an upload into a human-voice claim.
 
 Optional installs are pinned in `requirements-local.txt`. System package `libegl1` is required before MediaPipe will load. Weights are not in the archive. Fetch them yourself and check the hashes:
 

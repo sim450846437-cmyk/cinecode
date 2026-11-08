@@ -63,7 +63,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audio", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--synthetic", choices=("0", "1"), default="0")
+    parser.add_argument("--audio-source", choices=("synthetic", "declared_recording", "unknown"), default="unknown")
     parser.add_argument("--reference", default="")
     parser.add_argument("--language", choices=("en", "zh"), default="")
     args = parser.parse_args(argv)
@@ -98,6 +98,7 @@ def main(argv):
             token = (w.word or "").strip()
             if token and w.end > w.start:
                 words.append({"word": token, "start": round(w.start, 3), "end": round(w.end, 3)})
+    # Join with spaces. Stripping each token removes Whisper's boundary, and a spaceless string scores WER 1.
     (out / "words.json").write_text(json.dumps({"words": words, "language": info.language}, ensure_ascii=False, indent=1), encoding="utf-8")
     if len(words) < 2:
         print(json.dumps({"error": "asr_empty", "words": words}, ensure_ascii=False))
@@ -118,9 +119,10 @@ def main(argv):
         "speech": "uploaded file decoded by ffmpeg; espeak-ng is not used",
         "asr": f"faster-whisper {model_name}, MIT, word_timestamps, cpu int8, one thread",
         "asr_weights": "https://huggingface.co/Systran/faster-whisper-base",
-        "synthetic_test": args.synthetic == "1",
+        "audio_source": args.audio_source,
+        "synthetic_test": True if args.audio_source == "synthetic" else None,
         "human_speech_verified": False,
-        "heard_by_asr": "".join(w["word"] for w in words),
+        "heard_by_asr": " ".join(w["word"] for w in words),
         "word_count": len(words),
         "source_duration": cut["source_duration"],
         "edited_duration": cut["edited_duration"],

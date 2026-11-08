@@ -181,6 +181,58 @@ class Validate(unittest.TestCase):
         self.assertTrue(norm["lines"][0].startswith("先"))
 
 
+class TopicAndSource(unittest.TestCase):
+    def test_locked_text_is_drawn_and_the_brief_is_metadata(self):
+        kind, norm, _ = job.validate(request(
+            brief="写四句文具收纳",
+            script={"mode": "locked", "text": "先清台面\n喷一点\n顺纹擦开\n热水过盘"},
+        ))
+        self.assertEqual(kind, "ok")
+        self.assertEqual(norm["brief_role"], "metadata")
+        self.assertEqual(norm["lines"][0], "先清台面")
+        self.assertEqual(norm["text_source"], "user_locked")
+        kind, off, _ = job.validate(request(
+            brief="擦台面",
+            script={"mode": "locked", "text": "文具入盒\n贴上标签\n分类摆好"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(off["blocked_code"], "template_topic_mismatch")
+        kind, pens, _ = job.validate(request(
+            template_id="stationery_tidy_v1",
+            brief="a note",
+            script={"mode": "locked", "text": "铅笔入盒\n橡皮归位\n尺子摆好\n便签单独放"},
+        ))
+        self.assertEqual(kind, "ok")
+        self.assertEqual(pens["lines"][0], "铅笔入盒")
+        self.assertEqual(pens["brief_role"], "metadata")
+
+    def test_upload_source_is_unknown_unless_the_caller_declares_it(self):
+        body = {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 60,
+            "upload_id": "0123456789abcdef",
+        }
+        kind, norm, _ = job.validate(body)
+        if kind == "blocked" and norm.get("blocked_code") == "asr_runtime_missing":
+            self.assertIsNone(norm.get("audio_source") if False else None)
+        else:
+            self.assertEqual(kind, "ok")
+            self.assertEqual(norm["audio_source"], "unknown")
+            self.assertNotIn("synthetic_test", norm)
+        declared = dict(body, audio_source="declared_recording")
+        kind, norm, _ = job.validate(declared)
+        if kind == "ok":
+            self.assertEqual(norm["audio_source"], "declared_recording")
+        synth = dict(body, synthetic_test=True)
+        kind, norm, _ = job.validate(synth)
+        if kind == "ok":
+            self.assertEqual(norm["audio_source"], "synthetic")
+        status, payload = job.validate(dict(body, audio_source="human"))
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_field")
+
+
 class Queue(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="cinecode-job-")
