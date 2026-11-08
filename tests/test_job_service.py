@@ -142,6 +142,21 @@ class Validate(unittest.TestCase):
         good = ["铅笔入笔筒", "橡皮进盒", "尺子排整齐", "文具收好"]
         self.assertEqual(len(job.action_not_drawn("stationery_tidy_v1", bad)), 4)
         self.assertEqual(job.action_not_drawn("stationery_tidy_v1", good), [])
+        slanted = ["铅笔斜插入笔筒中。", "橡皮轻轻放入盒子内。", "尺子平放整齐一排。", "文具盒里收好它们。"]
+        missed = job.action_not_drawn("stationery_tidy_v1", slanted)
+        self.assertIn("铅笔斜插入笔筒中。", missed)
+        self.assertIn("文具盒里收好它们。", missed)
+        self.assertNotIn("橡皮轻轻放入盒子内。", missed)
+        self.assertNotIn("尺子平放整齐一排。", missed)
+        matched = [
+            "铅笔水平滑进笔筒。",
+            "橡皮整个进入盒子中。",
+            "尺子平放成一排放。",
+            "三样仍分开摆放好。",
+        ]
+        self.assertEqual(job.action_not_drawn("stationery_tidy_v1", matched), [])
+        separate = ["铅笔水平滑进笔筒中。", "橡皮整个放入盒子内。", "尺子平放整齐一排。", "三样分开不要收一起。"]
+        self.assertEqual(job.action_not_drawn("stationery_tidy_v1", separate), [])
         self.assertEqual(themed["template_id"], "stationery_tidy_v1")
         bare = tempfile.TemporaryDirectory()
         self.addCleanup(bare.cleanup)

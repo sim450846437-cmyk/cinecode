@@ -248,14 +248,24 @@ function pencilsInto(g, k) {
 }
 function eraserInto(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  const boxX = 0.08;
-  const x = lerp(-0.36, boxX + 0.1, p);
+  const boxX = 0.0;
+  const boxY = 0.0;
+  const boxW = 0.42;
+  const boxH = 0.24;
+  const mid = boxX + boxW * 0.5;
+  const enter = Math.min(1, p / 0.62);
+  const tuck = Math.max(0, (p - 0.62) / 0.38);
+  const x = enter < 1 ? lerp(-0.4, mid, enter) : lerp(mid, mid + 0.05, tuck);
+  fillRR(g, boxX + 0.03, boxY + 0.03, boxW - 0.06, boxH - 0.06, 0.02, '#e7c79a');
   g.save();
-  g.translate(x, 0.08);
-  fillRR(g, -0.14, -0.04, 0.18, 0.08, 0.016, '#f7f4ef');
-  fillRR(g, 0.02, -0.04, 0.08, 0.08, 0.012, '#d4537e');
+  g.translate(x, boxY + boxH * 0.5);
+  fillRR(g, -0.11, -0.04, 0.16, 0.08, 0.014, '#f7f4ef');
+  fillRR(g, 0.03, -0.04, 0.08, 0.08, 0.012, '#d4537e');
   g.restore();
-  coverBox(g, boxX, -0.02, 0.24, 0.2, '#c9843a');
+  fillRR(g, boxX, boxY, 0.035, boxH, 0.01, '#c9843a');
+  fillRR(g, boxX + boxW - 0.035, boxY, 0.035, boxH, 0.01, '#c9843a');
+  fillRR(g, boxX, boxY, boxW, 0.03, 0.01, '#c9843a');
+  fillRR(g, boxX, boxY + boxH - 0.03, boxW, 0.03, 0.01, '#c9843a');
 }
 function rulersNeat(g, k) {
   const p = Math.max(0, Math.min(1, k));
@@ -282,16 +292,24 @@ function labelOn(g, k) {
 function tidyFinish(g, k) {
   const p = Math.max(0, Math.min(1, k));
   const flat = Math.min(1, p / 0.4);
-  const boxX = 0.16;
+  const holderX = 0.16;
   for (let i = 0; i < 4; i++) ruler(g, lerp(-0.02, -0.22, flat), 0.18 + i * 0.09, lerp((i - 1.5) * 0.3, 0, flat));
+  const boxX = 0.02;
+  const boxY = 0.5;
+  const boxW = 0.2;
+  const boxH = 0.16;
+  fillRR(g, boxX + 0.02, boxY + 0.02, boxW - 0.04, boxH - 0.04, 0.01, '#e7c79a');
   g.save();
-  g.translate(lerp(-0.24, 0.06, p), 0.58);
-  fillRR(g, -0.1, -0.035, 0.14, 0.07, 0.012, '#e7e2dc');
-  fillRR(g, 0.02, -0.035, 0.05, 0.07, 0.01, '#d4537e');
+  g.translate(lerp(-0.28, boxX + boxW * 0.5, Math.min(1, p / 0.65)), boxY + boxH * 0.5);
+  fillRR(g, -0.045, -0.022, 0.055, 0.044, 0.008, '#e7e2dc');
+  fillRR(g, 0.008, -0.022, 0.03, 0.044, 0.006, '#d4537e');
   g.restore();
-  coverBox(g, 0.04, 0.5, 0.16, 0.16, '#c9843a');
-  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.18, boxX + 0.04, Math.min(1, p / 0.75)), -0.18 + i * 0.08, -0.02);
-  coverBox(g, boxX, -0.22, 0.18, 0.4, PALETTE.cloth);
+  fillRR(g, boxX, boxY, 0.018, boxH, 0.004, '#c9843a');
+  fillRR(g, boxX + boxW - 0.018, boxY, 0.018, boxH, 0.004, '#c9843a');
+  fillRR(g, boxX, boxY, boxW, 0.016, 0.004, '#c9843a');
+  fillRR(g, boxX, boxY + boxH - 0.016, boxW, 0.016, 0.004, '#c9843a');
+  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.18, holderX + 0.04, Math.min(1, p / 0.75)), -0.18 + i * 0.08, -0.02);
+  coverBox(g, holderX, -0.22, 0.18, 0.4, PALETTE.cloth);
 }
 function drawKind(g, kind, k) {
   if (kind === 'eraser') eraserInto(g, k);
