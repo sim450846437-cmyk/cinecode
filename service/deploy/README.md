@@ -69,7 +69,7 @@ Nothing in this package needs Docker or root. Do not copy it over an existing in
 ./service/deploy/probe-env
 ```
 
-On a host whose PID 1 is tini, the durable command is `job-supervise` itself. tini will reap it; tini will not restart it after the process is gone unless whatever started the container starts that command again. `systemctl` is not used. A unit file is not installed. `nohup` of `job_service.py` alone does not restart a crashed process and does not come back after a reboot.
+On a host whose PID 1 is tini, the durable command is `job-supervise` itself. tini will reap it; tini will not restart it after the process is gone unless whatever started the container starts that command again. Restarting that child is not a host boot. `systemctl` is not used. A unit file is not installed. `cron` is not used. `nohup` of `job_service.py` alone does not restart a crashed process and does not come back after a reboot. A script in this folder is not evidence that a machine already boots it.
 
 The next start calls resume: a job left in `rendering` whose pid is dead is queued again. A half-written `--video` file is not resumed frame by frame. A draft file that `make.py` already delivered is registered without another render. There is no paid call to replay.
 

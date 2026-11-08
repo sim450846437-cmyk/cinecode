@@ -231,6 +231,20 @@ class TopicAndSource(unittest.TestCase):
         self.assertEqual(review["blocked_code"], "constraint_needs_review")
         status, payload = job.validate(request(constraints={"mystery": ["清洁剂"]}))
         self.assertEqual(status, 400)
+        kind, moved, _ = job.validate(request(
+            script={"mode": "locked", "text": "移开杂物\n用湿布擦台面\n擦干水渍\n收好抹布"},
+        ))
+        self.assertEqual(kind, "ok", moved.get("blocked_code"))
+        kind, vacuum, _ = job.validate(request(
+            script={"mode": "locked", "text": "用清水擦拭\n用软布轻擦\n用吸尘器清理，不留死角\n用抹布擦干"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(vacuum["blocked_code"], "template_cannot_show")
+        kind, tidy, _ = job.validate(request(
+            template_id="stationery_tidy_v1",
+            script={"mode": "locked", "text": "将铅笔放入笔筒\n橡皮放入专用盒\n尺子排列整齐有序\n文具收好，整洁有序"},
+        ))
+        self.assertEqual(kind, "ok", tidy.get("blocked_code"))
 
     def test_scene_lines_advance_and_do_not_go_back(self):
         def shown(n_lines, n_scenes=4):

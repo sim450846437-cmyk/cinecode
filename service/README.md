@@ -10,7 +10,7 @@ The render path is the kit's own. The adapter creates a film folder with `script
 |---|---|---|
 | `motion_video` | themed template | `home_clean_tips_v1` is counter cleaning. `stationery_tidy_v1` is putting stationery away. A brief for the other theme is `blocked`. The pictures do not follow arbitrary copy. `script.mode generate` uses the local GGUF only when that file is configured. |
 | `copywriting` | local GGUF when configured | llama.cpp plus an allowlisted Apache-2.0 Qwen GGUF. The hazard screen is not a complete safety proof. 0.5B prose is limited. |
-| `face_swap` | candidate_unverified | Full head plus hair is not implemented. Old stills and 3-frame files are not a rerunnable video. INSwapper is inner-face only and is not cleared here. Wan2.2-Animate-14B is not downloaded or run. |
+| `face_swap` | candidate_unverified | Full head plus hair is not implemented. The caller's own appearance is authorized. The missing piece is the original target motion video, not another signature. INSwapper is inner-face only. Wan2.2-Animate-14B is not run: main weights Apache-2.0, site text also says academic demonstration, and YOLO/ViTPose/SAM2 auxiliaries are not all cleared. AGPL is not a fee and is not a ban on an internal test. |
 | `background_replace` | moving footage only | Needs `CINECODE_MOTION_VIDEO` plus the selfie segmenter. A pan of a still is not this task. |
 | `word_accurate_talking_head_edit` | uploaded audio | Bind the upload with the JSON field `upload_id`. See the curl block below. Omitting it is `blocked` / `audio_required`. |
 | `one_click_replace` | unavailable | `replacement_target` must be null. |

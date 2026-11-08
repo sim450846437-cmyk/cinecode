@@ -228,9 +228,11 @@ function spotsLeft(g, p) {
 }
 function cleanKind(line) {
   const s = line || '';
-  if (s.includes('擦干') || s.includes('水渍') || s.includes('冲')) return 'dry';
-  if (s.includes('喷') || s.includes('擦') || s.includes('抹')) return 'wipe';
+  if (s.includes('收好') && s.includes('抹布')) return 'cloth';
+  if (s.includes('擦干') || s.includes('水渍') || s.includes('水迹') || s.includes('冲')) return 'dry';
+  if (s.includes('喷') || s.includes('擦') || s.includes('抹') || s.includes('湿布') || s.includes('软布') || s.includes('清水')) return 'wipe';
   if (s.includes('做完') || s.includes('查看')) return 'done';
+  if (s.includes('移开') || s.includes('杂物')) return 'sweep';
   return 'sweep';
 }
 function dryPlate(g, k, remain) {
@@ -246,6 +248,14 @@ function stroke(k, turns) {
 function paintClean(g, k, line, S) {
   const kind = cleanKind(line);
   const p = Math.max(0, Math.min(1, k));
+  if (kind === 'cloth') {
+    g.save();
+    g.translate(lerp(0.05, 0.72, p), lerp(0.12, -0.55, p));
+    g.rotate(lerp(0, -0.4, p));
+    fillRR(g, -0.28, -0.12, 0.56, 0.24, 0.04, PALETTE.cloth);
+    g.restore();
+    return;
+  }
   if (kind === 'wipe') {
     fillRR(g, -0.62, -0.28, 0.2, 0.42, 0.04, PALETTE.bottle);
     for (let i = 0; i < 6; i++) dot(g, S, -0.2 + i * 0.12, 0.04, 0.03 * (1 - p), PALETTE.mist, 0.95 * (1 - p));

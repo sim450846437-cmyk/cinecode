@@ -118,7 +118,9 @@ def main(argv):
     report = {
         "speech": "uploaded file decoded by ffmpeg; espeak-ng is not used",
         "asr": f"faster-whisper {model_name}, MIT, word_timestamps, cpu int8, one thread",
-        "asr_weights": "https://huggingface.co/Systran/faster-whisper-base",
+        "asr_weights": "https://huggingface.co/Systran/faster-whisper-base" if model_name == "base" else model_name,
+        "language_requested": args.language or "auto",
+        "language_detected": info.language,
         "audio_source": args.audio_source,
         "synthetic_status": synthetic_status(args.audio_source),
         "human_speech_verified": False,

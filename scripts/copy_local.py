@@ -313,7 +313,12 @@ def repetition_codes(lines):
     return found
 
 
-ACTION = set("移擦收排放进入抹扫喷整理归贴摆清干吸蘸拿刷洗过")
+# Phrases, not single characters. 整洁 must not match 整理.
+ACTION_PHRASES = (
+    "移开", "擦干", "收好", "收拾", "放入", "放进", "整理", "归位",
+    "吸干", "擦", "收", "放", "排", "进", "入", "抹", "扫", "喷",
+    "贴", "摆", "洗", "蘸", "刷", "拿",
+)
 NUMBERED = re.compile(r"(?:^|\n)\s*(?:\d{1,2}[.、．]|[（(]\d{1,2}[）)])")
 
 
@@ -322,7 +327,7 @@ def _cjk_count(text):
 
 
 def _has_action(text):
-    return any(ch in ACTION for ch in text)
+    return any(phrase in text for phrase in ACTION_PHRASES)
 
 
 def _banner(line):

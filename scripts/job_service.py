@@ -105,12 +105,14 @@ def current_capabilities():
             "configured": False,
             "detail": (
                 "Full head plus hair is candidate_unverified, not an implementation. "
-                "Old stills and 3-frame comparison files are not a rerunnable full-head video. "
-                "The scripts on record are INSwapper inner-face only; those weights are not cleared "
-                "for commercial use, and old portraits are not authorized for a new test. "
-                "Wan2.2-Animate-14B is not wired. Its main code and weights are Apache-2.0; "
-                "auxiliary weights were not reviewed one by one, and replacement can change clothes, "
-                "body, or background. No GPU was visible on the measured host. This service does not download it."
+                "The caller's own on-camera material is authorized for this run. "
+                "The located source still is source_face_chen.jpg. The original target motion video is not located, "
+                "and a public clip is not a substitute. "
+                "Old 3-frame files are not a rerunnable full-head video. INSwapper is inner-face only. "
+                "Wan2.2-Animate-14B is not run: the main weights are Apache-2.0, the project page also says academic demonstration, "
+                "and those two wordings are both kept. Replacement needs YOLOv10m (AGPL-3.0: internal test is not the same as closed distribution clearance, and AGPL is not a fee), "
+                "a ViTPose directory of external tensors whose converted-weight licence is not fully checked, and SAM2 Hiera Large (Apache-2.0, not downloaded). "
+                "No GPU was visible on the measured host. This service does not download the 14B."
             ),
         },
         {

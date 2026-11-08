@@ -68,6 +68,9 @@ class ParseTrace(unittest.TestCase):
         kept = copy_local.parse_lines(synonym, "写四句：擦台面、收抹布、擦水渍、移杂物")
         self.assertEqual(len(kept), 4)
         self.assertIn("湿布", kept[0])
+        status = copy_local.explain_parse("文具收好，整洁有序。", "收纳")
+        self.assertEqual(status["lines"], ["文具收好，整洁有序。"])
+        self.assertTrue(any(step.get("reason") == "kept_together" for step in status["parse_trace"]))
         cut = copy_local.explain_parse("移开杂物。用湿布擦", "清洁")
         self.assertEqual(cut["lines"], ["移开杂物。"])
         self.assertEqual(cut["truncated_tail"], "用湿布擦")
@@ -86,6 +89,11 @@ class ParseTrace(unittest.TestCase):
         self.assertEqual(asr_edit.cer("台面", "台面"), 0.0)
         self.assertEqual(asr_edit.synthetic_status("declared_recording"), "declared_not_synthetic")
         self.assertEqual(asr_edit.synthetic_status("unknown"), "unknown")
+        ref = "而 对 楼市 成交 抑制 作用 最 大 的 限 购"
+        heard = "而 对 面 螺 式 成 焦 一直 作 用 最 大的 线 构"
+        self.assertAlmostEqual(asr_edit.cer(ref, heard), 8 / 15, places=4)
+        self.assertGreater(asr_edit.wer(ref, heard), 0.5)
+        self.assertNotEqual(asr_edit._norm_text(ref), asr_edit._norm_text(heard))
 
 
 class SubstancePolicy(unittest.TestCase):
