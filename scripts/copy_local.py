@@ -87,6 +87,30 @@ def hazard_codes(lines):
     return found
 
 
+def input_constraints(brief):
+    """Local, explainable limits on the request itself. Not a general safety proof."""
+    found = []
+    rules = (
+        ("pour_back", re.compile(r"(清洁|液|剂|漂白|醋|酒精).{0,10}(倒回|回灌|灌回|倒进原|倒入原)|(倒回|回灌|灌回).{0,8}(瓶|容器|原)")),
+        ("mix_agents", re.compile(r"(漂白|洁厕|氨|清洁剂).{0,12}(混|兑)|(混|兑).{0,12}(漂白|洁厕|氨)")),
+    )
+    for code, pattern in rules:
+        hit = pattern.search(brief)
+        if hit:
+            found.append({"code": code, "span": hit.group(0)})
+    return found
+
+
+def output_constraints(brief, lines):
+    found = list(hazard_codes(lines))
+    text = "\n".join(lines)
+    if re.search(r"不用清洁剂|不要清洁剂|别用清洁剂|勿用清洁剂", brief):
+        for word in ("清洁剂", "白醋", "酒精", "漂白", "氨"):
+            if word in text:
+                found.append("brief_forbids:" + word)
+    return found
+
+
 def repetition_codes(lines):
     found = []
     norm = [re.sub(r"\s+", "", line) for line in lines if line.strip()]
@@ -115,18 +139,25 @@ def repetition_codes(lines):
 
 
 def parse_lines(text, brief):
-    lines = []
+    """Keep model sentences. Do not drop a step because it shares words with the brief."""
+    chunks = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith((">", "/", "[", "Exiting", "model", "ftype", "modalities", "using ")):
             continue
         if "t/s" in line or "available commands" in line or line.startswith("build"):
             continue
-        if not any("\u4e00" <= ch <= "\u9fff" for ch in line):
+        if brief and line == brief:
             continue
-        if brief and brief in line:
+        chunks.extend(re.split(r"(?<=[。！？])", line))
+    lines = []
+    for chunk in chunks:
+        line = chunk.strip().strip(" 0123456789.-、")
+        if not line or not any("\u4e00" <= ch <= "\u9fff" for ch in line):
             continue
-        lines.append(line.strip(" 0123456789.-、"))
+        if brief and line == brief:
+            continue
+        lines.append(line)
     return lines[:8]
 
 
@@ -189,27 +220,29 @@ def main(argv):
     if not brief or len(brief) > 200:
         print(json.dumps({"error": "brief_rejected"}))
         return 2
-    drafts = []
-    problems = ["not_run"]
+    blocked_input = input_constraints(brief)
+    if blocked_input:
+        payload = {
+            "error": "input_constraint_rejected",
+            "passed_screen": False,
+            "prose_quality_pass": False,
+            "ai_generated": False,
+            "brief": brief,
+            "input_constraints": blocked_input,
+            "lines": [],
+        }
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        print(json.dumps({"error": "input_constraint_rejected", "input_constraints": blocked_input}, ensure_ascii=False))
+        return 4
+    text = llama(cli, model, SYS, brief, 160)
+    if text is None:
+        return 1
+    lines = parse_lines(text, brief)
+    problems = output_constraints(brief, lines) + repetition_codes(lines)
+    drafts = [lines]
     revised = False
-    for attempt, prompt in enumerate((brief, None)):
-        if attempt == 1:
-            prompt = brief + "。上一稿没有通过：" + "、".join(problems) + "。请重写四个不同的步骤。"
-            revised = True
-        text = llama(cli, model, SYS, prompt, 160)
-        if text is None:
-            return 1
-        lines = parse_lines(text, brief)
-        drafts.append(lines)
-        problems = hazard_codes(lines) + repetition_codes(lines)
-        if problems:
-            continue
-        verdict = review_verdict(cli, model, lines)
-        # The same small model is not a second veto. A REVISE here asks for one rewrite.
-        # After that rewrite, only the hazard and repetition screens can still block.
-        if verdict == "REVISE" and attempt == 0:
-            problems = ["model_review"]
-            continue
+    if not problems:
         payload = {
             "model": os.path.basename(model),
             "model_size": size_name,
@@ -218,19 +251,16 @@ def main(argv):
             "memory": budget,
             "threads": 1,
             "ai_generated": True,
-            "revised": revised,
+            "revised": False,
             "passed_screen": True,
             "prose_quality_pass": False,
             "listened": False,
-            "screen": problems and problems or ["hazard_codes", "repetition_codes", "model_review:" + verdict],
-            "review": verdict,
+            "screen": ["input_constraints", "output_constraints", "repetition_codes"],
             "brief": brief,
             "drafts": drafts,
             "lines": lines,
             "text": "\n".join(lines),
         }
-        # screen list above is the checks that ran, not failures.
-        payload["screen"] = ["hazard_codes", "repetition_codes", "model_review:" + verdict]
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         print(json.dumps({"lines": lines, "revised": revised, "prose_quality_pass": False}, ensure_ascii=False))
@@ -242,7 +272,7 @@ def main(argv):
         "source": source,
         "memory": budget,
         "ai_generated": True,
-        "revised": True,
+        "revised": False,
         "passed_screen": False,
         "prose_quality_pass": False,
         "listened": False,

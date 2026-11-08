@@ -205,6 +205,11 @@ class TopicAndSource(unittest.TestCase):
         self.assertEqual(kind, "ok")
         self.assertEqual(pens["lines"][0], "铅笔入盒")
         self.assertEqual(pens["brief_role"], "metadata")
+        kind, hidden, _ = job.validate(request(
+            script={"mode": "locked", "text": "先清台面\n更换边条\n喷一点\n擦干水渍"},
+        ))
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(hidden["blocked_code"], "template_cannot_show")
 
     def test_upload_source_is_unknown_unless_the_caller_declares_it(self):
         body = {
@@ -367,6 +372,81 @@ class Http(unittest.TestCase):
         status, denied = self.call("GET", f"/v1/jobs/{owned['job_id']}", token=token_b)
         self.assertEqual(status, 403)
         self.assertEqual(denied["error"]["code"], "forbidden")
+        wav = b"RIFF" + b"\x24\x00\x00\x00" + b"WAVE" + b"fmt " + b"\x00" * 16
+        up = urllib.request.Request(f"http://127.0.0.1:{self.port}/v1/uploads", data=wav, method="POST")
+        up.add_header("Authorization", "Bearer " + token_b)
+        up.add_header("Content-Type", "audio/wav")
+        with urllib.request.urlopen(up, timeout=5) as resp:
+            uploaded = json.loads(resp.read().decode())
+            self.assertEqual(resp.status, 201)
+        before = self.store.conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        status, stolen = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 60,
+            "upload_id": uploaded["upload_id"],
+            "idempotency_key": "steal-upload",
+        }, self.token)
+        self.assertEqual(status, 403)
+        self.assertNotIn("job_id", stolen)
+        after = self.store.conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        self.assertEqual(after, before)
+        status, own = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 60,
+            "upload_id": uploaded["upload_id"],
+            "idempotency_key": "own-upload",
+        }, token_b)
+        self.assertIn(status, (202, 200))
+        self.assertIn("job_id", own)
+        reopened = job.Store(self.tmp.name)
+        self.assertIsNotNone(reopened.upload_for_owner(uploaded["upload_id"], "botb"))
+        self.assertIsNone(reopened.upload_for_owner(uploaded["upload_id"], "operator"))
+        self.assertIsNone(reopened.upload_for_owner("0123456789abcdef", "botb"))
+        legacy = Path(self.tmp.name) / "uploads" / "abcdef0123456789.json"
+        legacy.write_text(json.dumps({"bytes": 1, "kind": "wav"}), encoding="utf-8")
+        (Path(self.tmp.name) / "uploads" / "abcdef0123456789.bin").write_bytes(wav)
+        self.assertIsNone(reopened.upload_for_owner("abcdef0123456789", "botb"))
+        token_c = self.store.add_bot("botc")
+        status, also = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 60,
+            "upload_id": uploaded["upload_id"],
+            "idempotency_key": "botc-steal",
+        }, token_c)
+        status_missing, missing = self.call("POST", "/v1/jobs", {
+            "task_type": "word_accurate_talking_head_edit",
+            "policy_id": "preauthorized_motion_v1",
+            "timeout_s": 60,
+            "upload_id": "0123456789abcdef",
+            "idempotency_key": "missing-upload",
+        }, token_c)
+        self.assertEqual(status, 403)
+        self.assertEqual(status_missing, 403)
+        self.assertEqual(also["error"], missing["error"])
+        self.assertNotIn("job_id", also)
+        planted, planted_body = self.store.submit({
+            "task_type": "word_accurate_talking_head_edit",
+            "upload_id": uploaded["upload_id"],
+            "idempotency_key": "planted-foreign",
+            "timeout_s": 60,
+            "policy_id": "preauthorized_motion_v1",
+            "blocked_code": None,
+        }, "", "operator")
+        self.assertEqual(planted, 202)
+        out = Path(self.tmp.name) / "work" / planted_body["job_id"] / "output"
+        out.mkdir(parents=True)
+        (out / "after.mp4").write_bytes(b"not-a-derived-movie")
+        self.store.update(planted_body["job_id"], state="succeeded", artifact_json=json.dumps({
+            "relative_path": "output/after.mp4", "bytes": 20, "delivered": True,
+        }))
+        status, denied_file = self.call("GET", f"/v1/jobs/{planted_body['job_id']}/artifact", token=self.token)
+        self.assertEqual(status, 403)
+        self.assertEqual(denied_file["error"]["code"], "forbidden")
+        status, owner_file = self.call("GET", f"/v1/jobs/{planted_body['job_id']}/artifact", token=token_b)
+        self.assertEqual(status, 403)
         with self.assertRaises(SystemExit):
             job.make_server(self.store, "0.0.0.0", 0)
 

@@ -125,14 +125,30 @@ function lineAt(i, fallback) {
   const s = COPY_LINES[i];
   return s && s.trim() ? s.trim() : '';
 }
+function captionUnits(str) {
+  const units = [];
+  let buf = '';
+  const flush = () => { if (buf) { units.push(buf); buf = ''; } };
+  for (const ch of [...String(str)]) {
+    if ('，。！？；、,. '.includes(ch)) { flush(); units.push(ch); }
+    else { buf += ch; if (buf.length === 2) flush(); }
+  }
+  flush();
+  const packed = [];
+  for (const unit of units) {
+    if (packed.length && '，。！？；、,. '.includes(unit)) packed[packed.length - 1] += unit;
+    else packed.push(unit);
+  }
+  return packed;
+}
 function captionLines(g, str, size, maxW) {
   setType(g, TYPE, 'text', size, { short: 960, weight: 700 });
   const lines = [];
   let cur = '';
-  for (const ch of [...String(str)]) {
-    const next = cur + ch;
+  for (const unit of captionUnits(str)) {
+    const next = cur + unit;
     if (g.measureText(next).width <= maxW || !cur) cur = next;
-    else { lines.push(cur); cur = ch; }
+    else { lines.push(cur); cur = unit; }
   }
   if (cur) lines.push(cur);
   return lines;
@@ -141,8 +157,7 @@ function caption(g, S, str, yNorm, k) {
   if (!str || k <= 0) return;
   g.save();
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalAlpha = clamp(k);
-  g.fillStyle = PALETTE.ink;
+  g.globalAlpha = 1;
   g.textAlign = 'center';
   g.textBaseline = 'alphabetic';
   const maxW = S.W * 0.84;
@@ -162,7 +177,14 @@ function caption(g, S, str, yNorm, k) {
   const high = S.H * 0.94;
   if (top < low) top = low;
   if (top + block > high) top = Math.max(low, high - block);
-  lines.forEach((ln, i) => g.fillText(ln, S.W / 2, top + hr.above + i * step));
+  lines.forEach((ln, i) => {
+    const y = top + hr.above + i * step;
+    const w = g.measureText(ln).width;
+    g.fillStyle = '#fffaf3';
+    g.fillRect(S.W / 2 - w / 2 - 12, y - hr.above - 6, w + 24, step);
+    g.fillStyle = '#1a120e';
+    g.fillText(ln, S.W / 2, y);
+  });
   g.restore();
 }
 function pencil(g, x, y, tilt) {
@@ -174,13 +196,13 @@ function pencil(g, x, y, tilt) {
 function counterSweep(g, k, t, S) {
   const cam = CAM.base();
   CAM.dolly(cam, EASE.out(k), 1.06, 0.98);
-  const wipe = (Math.sin(t * 1.7) + 1) / 2;
+  const wipe = (t * 0.45) % 1;
   plane(g, S, cam, 0.7, () => wall(g));
   plane(g, S, cam, 0.2, () => counter(g, 4));
   plane(g, S, cam, 0, () => {
     fillRR(g, 0.28, -0.05, 0.42, 0.55, 0.04, PALETTE.cloth);
     for (let i = 0; i < 5; i++) {
-      pencil(g, lerp(-0.7, 0.25, wipe) + i * 0.04, 0.02 + i * 0.08 + Math.sin(t * 8 + i) * 0.04, -0.5);
+      pencil(g, lerp(-0.78, 0.34, wipe) + i * 0.015, 0.02 + i * 0.08, -0.35);
     }
     caption(g, S, lineAt(0, '文具入盒'), -0.58, MOTION.at(t, 0.15, 0.4));
   });
@@ -189,16 +211,15 @@ function sprayWipe(g, k, t, S) {
   // truck, 4.8 s, ease-in-out, across the bottle
   const cam = CAM.base();
   CAM.truck(cam, EASE.inOut(k), -0.04, 0.05);
-  const local = (t - CUES.spray) / 4.6;
   plane(g, S, cam, 0.7, () => wall(g));
   plane(g, S, cam, 0.2, () => counter(g, 6));
   plane(g, S, cam, 0, () => {
     const pump = MOTION.at(t, CUES.spray + 0.1, 0.3);
-    fillRR(g, -0.15, 0.05, 0.5, 0.42, 0.04, PALETTE.cloth);
-    const labelY = lerp(-0.55, 0.28, Math.min(1, Math.max(0, local)));
-    fillRR(g, lerp(-0.45, 0.2, Math.min(1, Math.max(0, local))), labelY, 0.42, 0.16, 0.02, PALETTE.mist);
-    pencil(g, lerp(0.4, -0.2, Math.min(1, Math.max(0, local))), 0.35, 0.6);
-    caption(g, S, local < 0.45 ? lineAt(1, '贴上标签') : lineAt(2, '分类摆好'), -0.58, pump);
+    const slide = (Math.sin(t * 1.8) + 1) / 2;
+    fillRR(g, 0.18, 0.02, 0.46, 0.48, 0.04, PALETTE.cloth);
+    fillRR(g, lerp(-0.05, 0.16, slide), 0.16, 0.28, 0.12, 0.02, PALETTE.mist);
+    pencil(g, lerp(-0.2, 0.2, slide), 0.34, -0.15);
+    caption(g, S, slide < 0.5 ? lineAt(1, '贴上标签') : lineAt(2, '分类摆好'), -0.58, pump);
   });
 }
 function rinsePlate(g, k, t, S) {
@@ -207,12 +228,12 @@ function rinsePlate(g, k, t, S) {
   CAM.crane(cam, EASE.inOut(k), 0.06, -0.08);
   plane(g, S, cam, 0.55, () => counter(g, 8));
   plane(g, S, cam, 0, () => {
-    const flow = (Math.sin(t * 3.5) + 1) / 2;
+    const slide = (Math.sin(t * 1.6) + 1) / 2;
+    fillRR(g, 0.22, -0.08, 0.4, 0.5, 0.04, PALETTE.cloth);
     for (let i = 0; i < 4; i++) {
-      const drop = (Math.sin(t * 4 + i) + 1) / 2;
-      pencil(g, -0.4 + i * 0.24 + Math.sin(t * 3 + i) * 0.08, lerp(-0.45, 0.35, drop), 1.2);
+      pencil(g, lerp(-0.05, 0.2, slide), -0.02 + i * 0.1, -0.12);
     }
-    caption(g, S, lineAt(3, '分类摆好'), -0.62, flow);
+    caption(g, S, lineAt(3, '分类摆好'), -0.62, MOTION.at(t, CUES.sink, 0.35));
   });
 }
 function threeChecks(g, k, t, S) {
@@ -228,7 +249,7 @@ function threeChecks(g, k, t, S) {
     pencil(g, 0.05, -0.02, -0.4);
     g.restore();
   });
-  const title = lineAt(4, '定期查看');
+  const title = lineAt(4, '') || lineAt(3, '定期查看');
   caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));
   const rows = [];
   for (const i of [5, 6, 7]) {

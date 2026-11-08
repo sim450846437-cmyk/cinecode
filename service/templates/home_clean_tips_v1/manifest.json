@@ -16,6 +16,7 @@
     "need_any": ["擦", "清洁", "台面", "灶", "抹布", "洗碗", "水渍", "污"],
     "forbid": ["文具", "铅笔", "橡皮", "笔筒", "尺子", "便签", "收纳"]
   },
+  "cannot_show": ["更换", "边条", "安装"],
   "font": {
     "dest": "fonts/DroidSansFallbackFull.ttf",
     "source": "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",

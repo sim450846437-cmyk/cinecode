@@ -10,6 +10,8 @@ import copy_local
 
 class Gate(unittest.TestCase):
     def test_pour_back_is_rejected_and_a_negated_line_is_not(self):
+        self.assertEqual(copy_local.input_constraints("把用过的清洁液倒回原来的瓶子")[0]["code"], "pour_back")
+        self.assertEqual(copy_local.output_constraints("整理台面，不用清洁剂", ["用白醋擦一遍。"]), ["brief_forbids:白醋"])
         self.assertIn("pour_back", copy_local.hazard_codes(["清洁剂用后记得倒回容器里，避免浪费。"]))
         self.assertEqual(copy_local.hazard_codes(["不要把清洁液倒回原瓶。"]), [])
         self.assertIn("mix_agents", copy_local.hazard_codes(["把漂白水和洁厕灵混用。"]))
@@ -26,6 +28,10 @@ class Gate(unittest.TestCase):
         lines = ["先收走台面杂物。", "用干净抹布蘸水。", "顺着纹路擦一遍。", "擦干后敞开放置。"]
         self.assertEqual(copy_local.repetition_codes(lines), [])
         self.assertEqual(copy_local.hazard_codes(lines), [])
+        pasted = "build: x\n先把台面擦干净。喷一点水。顺着纹路擦开。把水渍擦干。"
+        parsed = copy_local.parse_lines(pasted, "写四句清洁步骤")
+        self.assertEqual(len(parsed), 4)
+        self.assertTrue(parsed[0].startswith("先把台面"))
         stationery = ["铅笔放进笔盒。", "橡皮单独装袋。", "尺子竖着摆好。", "便签放在上层。"]
         self.assertNotIn("repeated_phrase", copy_local.repetition_codes(stationery))
         self.assertNotIn("mix_agents", copy_local.hazard_codes(stationery))
@@ -37,3 +43,5 @@ class Gate(unittest.TestCase):
             "A cold lucid indifference reigned in his soul."), 0.01)
         self.assertGreater(asr_edit.wer("He hoped there would be stew.", "completely different words here"), 0.5)
         self.assertEqual(asr_edit.cer("台面", "台面"), 0.0)
+        self.assertEqual(asr_edit.synthetic_status("declared_recording"), "declared_not_synthetic")
+        self.assertEqual(asr_edit.synthetic_status("unknown"), "unknown")

@@ -193,6 +193,15 @@ def declared_audio_source(body):
     return "invalid"
 
 
+def template_cannot_show(manifest, text):
+    """Phrases this fixed picture cannot act out. Not a general content rating."""
+    missing = []
+    for phrase in manifest.get("cannot_show") or []:
+        if phrase and phrase in text:
+            missing.append(phrase)
+    return missing
+
+
 def topic_fits(manifest, text):
     """Theme keywords only. They are not a guarantee that the picture matches the words."""
     topic = manifest.get("topic") or {}
@@ -353,6 +362,12 @@ def validate(body):
             return "blocked", norm, (
                 "Locked text is what this template draws, and it does not match the template theme. "
                 "The brief is metadata and is not typeset."
+            )
+        unseen = template_cannot_show(manifest, "\n".join(lines))
+        if unseen:
+            norm = _normalized(body, brief, timeout_s, idem, output, blocked="template_cannot_show", lines=None, source="user_locked")
+            return "blocked", norm, (
+                "This template has no action for: " + "、".join(unseen) + ". No film is rendered."
             )
         source = "user_locked"
     norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source)
@@ -776,22 +791,52 @@ class Store:
             return None
         return path
 
-    def save_upload(self, data, kind):
+    def save_upload(self, data, kind, owner):
         folder = self.root / "uploads"
         folder.mkdir(parents=True, exist_ok=True)
         uid = secrets.token_hex(8)
+        (folder / f"{uid}.json").write_text(json.dumps({
+            "bytes": len(data), "kind": kind, "owner": owner, "created_at": now(),
+        }), encoding="utf-8")
         (folder / f"{uid}.bin").write_bytes(data)
-        (folder / f"{uid}.json").write_text(json.dumps({"bytes": len(data), "kind": kind}), encoding="utf-8")
         return uid
 
-    def upload_path(self, uid):
+    def upload_for_owner(self, uid, owner):
+        """Path only when this owner recorded the upload. Missing, foreign, and ownerless ids all deny."""
         if not isinstance(uid, str) or not re.fullmatch(r"[a-f0-9]{16}", uid):
             return None
-        path = (self.root / "uploads" / f"{uid}.bin").resolve()
-        root = (self.root / "uploads").resolve()
-        if root not in path.parents or not path.is_file():
+        if not isinstance(owner, str) or not owner:
             return None
-        return path
+        folder = (self.root / "uploads").resolve()
+        meta_path = (folder / f"{uid}.json").resolve()
+        blob = (folder / f"{uid}.bin").resolve()
+        if folder not in meta_path.parents or folder not in blob.parents:
+            return None
+        if not meta_path.is_file() or not blob.is_file():
+            return None
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        recorded = meta.get("owner")
+        if not isinstance(recorded, str) or recorded != owner:
+            return None
+        return blob
+
+    def derived_allowed(self, row, caller):
+        """A derived file is readable only when this caller owns the upload the job used."""
+        try:
+            request = json.loads(row["request_json"] or "{}")
+        except json.JSONDecodeError:
+            return False
+        upload_id = request.get("upload_id")
+        if not upload_id:
+            return True
+        if not caller:
+            return False
+        if self.upload_for_owner(upload_id, row["bot_id"]) is None:
+            return False
+        return self.upload_for_owner(upload_id, caller["bot_id"]) is not None
 
     def log_text(self, job_id, limit=200):
         row = self.get(job_id)
@@ -1088,6 +1133,25 @@ class CinecodeDraftRunner:
                 payload = {}
         if code == 0 and payload.get("passed_screen") and payload.get("lines"):
             _, manifest = load_manifest(request["template_id"])
+            unseen = template_cannot_show(manifest, "\n".join(payload["lines"]))
+            if unseen:
+                return {
+                    "state": "blocked",
+                    "artifact": {
+                        "relative_path": "output/copy-gate.json",
+                        "sha256": sha256_file(dest),
+                        "bytes": dest.stat().st_size,
+                        "delivered": False,
+                        "listened": False,
+                        "prose_quality_pass": False,
+                    },
+                    "error": {
+                        "code": "template_cannot_show",
+                        "category": "gate",
+                        "message": "The model text asks for an action this template does not animate: " + "、".join(unseen),
+                        "retryable": False,
+                    },
+                }
             if not topic_fits(manifest, "\n".join(payload["lines"])):
                 return {
                     "state": "blocked",
@@ -1275,15 +1339,16 @@ class DispatchRunner:
                 },
             }
         elif task == "word_accurate_talking_head_edit":
-            audio = ctl.store.upload_path(request.get("upload_id"))
+            audio = ctl.store.upload_for_owner(request.get("upload_id"), row["bot_id"])
             if audio is None:
+                ctl.log("upload denied")
                 return {
                     "state": "blocked",
                     "artifact": None,
                     "error": {
-                        "code": "audio_required",
-                        "category": "gate",
-                        "message": "The upload is missing. espeak-ng was not called.",
+                        "code": "forbidden",
+                        "category": "auth",
+                        "message": "upload is not available to this job",
                         "retryable": False,
                     },
                 }
@@ -1466,6 +1531,10 @@ class JobHandler(BaseHTTPRequestHandler):
                 self._send(403, {"error": {"code": "forbidden", "category": "auth",
                                            "message": "this job belongs to another bot", "retryable": False}})
                 return
+            if visible and not store.derived_allowed(visible, caller):
+                self._send(403, {"error": {"code": "forbidden", "category": "auth",
+                                           "message": "upload is not available to this caller", "retryable": False}})
+                return
             target = store.artifact_file(parts[2]) if visible else None
             if target is None:
                 self._send(404, {"error": {"code": "not_ready", "category": "request",
@@ -1513,7 +1582,7 @@ class JobHandler(BaseHTTPRequestHandler):
                 self._send(400, {"error": {"code": "unsupported_media", "category": "request",
                                            "message": "upload must be wav, mp3, or mp4", "retryable": False}})
                 return
-            uid = store.save_upload(data, kind)
+            uid = store.save_upload(data, kind, caller["bot_id"])
             self._send(201, {"upload_id": uid, "bytes": len(data), "kind": kind})
             return
         if path == "/v1/jobs":
@@ -1525,6 +1594,11 @@ class JobHandler(BaseHTTPRequestHandler):
                 self._send(result[0], result[1])
                 return
             kind, norm, message = result
+            upload_id = norm.get("upload_id") if isinstance(norm, dict) else None
+            if upload_id and store.upload_for_owner(upload_id, caller["bot_id"]) is None:
+                self._send(403, {"error": {"code": "forbidden", "category": "auth",
+                                           "message": "upload is not available to this caller", "retryable": False}})
+                return
             if kind == "blocked":
                 status, payload = store.submit(norm, message, caller["bot_id"])
             else:
@@ -1581,6 +1655,10 @@ def submit_file(store, path):
         print(json.dumps(result[1], ensure_ascii=False, indent=2))
         return result[0]
     kind, norm, message = result
+    upload_id = norm.get("upload_id") if isinstance(norm, dict) else None
+    if upload_id and store.upload_for_owner(upload_id, "operator") is None:
+        print(json.dumps({"error": {"code": "forbidden", "message": "upload is not available to this caller"}}, ensure_ascii=False))
+        return 403
     status, payload = store.submit(norm, message if kind == "blocked" else "")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if status in (200, 202) else status

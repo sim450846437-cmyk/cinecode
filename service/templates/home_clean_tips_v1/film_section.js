@@ -120,20 +120,41 @@ function loadCopy() {
     x.send();
   });
 }
+function lineAbout(keys, index, fallback) {
+  for (const row of COPY_LINES || []) {
+    if (row && keys.some((k) => row.includes(k))) return row.trim();
+  }
+  return lineAt(index, fallback);
+}
 function lineAt(i, fallback) {
   if (!COPY_LINES || !COPY_LINES.length) return fallback || '';
   const s = COPY_LINES[i];
   return s && s.trim() ? s.trim() : '';
 }
+function captionUnits(str) {
+  const units = [];
+  let buf = '';
+  const flush = () => { if (buf) { units.push(buf); buf = ''; } };
+  for (const ch of [...String(str)]) {
+    if ('，。！？；、,. '.includes(ch)) { flush(); units.push(ch); }
+    else { buf += ch; if (buf.length === 2) flush(); }
+  }
+  flush();
+  const packed = [];
+  for (const unit of units) {
+    if (packed.length && '，。！？；、,. '.includes(unit)) packed[packed.length - 1] += unit;
+    else packed.push(unit);
+  }
+  return packed;
+}
 function captionLines(g, str, size, maxW) {
   setType(g, TYPE, 'text', size, { short: 960, weight: 700 });
-  const chars = [...String(str)];
   const lines = [];
   let cur = '';
-  for (const ch of chars) {
-    const next = cur + ch;
+  for (const unit of captionUnits(str)) {
+    const next = cur + unit;
     if (g.measureText(next).width <= maxW || !cur) cur = next;
-    else { lines.push(cur); cur = ch; }
+    else { lines.push(cur); cur = unit; }
   }
   if (cur) lines.push(cur);
   return lines;
@@ -142,8 +163,7 @@ function caption(g, S, str, yNorm, k) {
   if (!str || k <= 0) return;
   g.save();
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalAlpha = clamp(k);
-  g.fillStyle = PALETTE.ink;
+  g.globalAlpha = 1;
   g.textAlign = 'center';
   g.textBaseline = 'alphabetic';
   const maxW = S.W * 0.84;
@@ -163,7 +183,14 @@ function caption(g, S, str, yNorm, k) {
   const high = S.H * 0.94;
   if (top < low) top = low;
   if (top + block > high) top = Math.max(low, high - block);
-  lines.forEach((ln, i) => g.fillText(ln, S.W / 2, top + hr.above + i * step));
+  lines.forEach((ln, i) => {
+    const y = top + hr.above + i * step;
+    const w = g.measureText(ln).width;
+    g.fillStyle = '#fffaf3';
+    g.fillRect(S.W / 2 - w / 2 - 12, y - hr.above - 6, w + 24, step);
+    g.fillStyle = '#1a120e';
+    g.fillText(ln, S.W / 2, y);
+  });
   g.restore();
 }
 function counterSweep(g, k, t, S) {
@@ -198,9 +225,15 @@ function sprayWipe(g, k, t, S) {
       const p = (local * 1.4 + i * 0.09) % 1;
       dot(g, S, -0.05 + p * 0.55, -0.08 + Math.sin(t * 9 + i) * 0.05, 0.018, PALETTE.mist, 0.85);
     }
-    const sweep = EASE.inOut((Math.sin(t * 2.2) + 1) / 2);
-    clothAt(g, lerp(0.15, 0.55, sweep), 0.22, 0.4);
-    caption(g, S, local < 0.45 ? lineAt(1, '喷一点') : lineAt(2, '顺纹擦开'), -0.58, pump);
+    const sweep = (Math.sin(t * 2.4) + 1) / 2;
+    g.save();
+    g.translate(lerp(0.02, 0.62, sweep), 0.22);
+    g.rotate(-0.3);
+    fillRR(g, -0.34, -0.18, 0.68, 0.36, 0.05, PALETTE.cloth);
+    g.fillStyle = PALETTE.clothEdge;
+    g.fillRect(-0.34, -0.02, 0.68, 0.02);
+    g.restore();
+    caption(g, S, local < 0.45 ? lineAbout(['喷'], 1, '喷一点') : lineAbout(['擦拭', '轻轻', '顺'], 2, '顺纹擦开'), -0.58, pump);
   });
 }
 function rinsePlate(g, k, t, S) {
@@ -219,9 +252,9 @@ function rinsePlate(g, k, t, S) {
     g.fillStyle = PALETTE.plate;
     g.beginPath(); g.ellipse(0.05, 0.12, 0.22, 0.1, 0, 0, TAU); g.fill();
     g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
-    const scrub = (Math.sin(t * 5.5) + 1) / 2;
-    fillRR(g, -0.2 + scrub * 0.36, 0.02 + Math.sin(t * 5.5) * 0.05, 0.2, 0.12, 0.03, PALETTE.sponge);
-    caption(g, S, lineAt(3, '热水过盘'), -0.62, flow);
+    const scrub = (Math.sin(t * 3.2) + 1) / 2;
+    fillRR(g, lerp(-0.45, 0.35, scrub), 0.02, 0.34, 0.16, 0.03, PALETTE.sponge);
+    caption(g, S, lineAbout(['擦干', '水渍', '过盘'], 3, '热水过盘'), -0.62, flow);
   });
 }
 function threeChecks(g, k, t, S) {
@@ -237,7 +270,7 @@ function threeChecks(g, k, t, S) {
     fillRR(g, -0.36, -0.2, 0.72, 0.4, 0.05, PALETTE.cloth);
     g.restore();
   });
-  const title = lineAt(4, '三步做完');
+  const title = lineAt(4, '') || lineAt((COPY_LINES || []).length - 1, '三步做完');
   caption(g, S, title, -0.62, MOTION.at(t, CUES.card, 0.35));
   const rows = [];
   for (const i of [5, 6, 7]) {

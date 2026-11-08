@@ -21,7 +21,7 @@ One measured host had about 3.2 GB available and no swap before a copy job. `pro
 
 ## Speech upload contract
 
-The job field is `upload_id`. It is the `upload_id` string from `POST /v1/uploads`. A speech job without that field is stored as `blocked` with `audio_required`. The example body is `service/examples/speech_job.json`. Replace the placeholder id. Do not guess another field name.
+The job field is `upload_id`. It is the `upload_id` string from `POST /v1/uploads`, and that upload belongs to the bot that sent it. Another bot, and the operator token, get 403 if they cite it. No job is stored in that case. An id that does not exist and an old upload with no owner get the same 403. A speech job without that field is stored as `blocked` with `audio_required`. The example body is `service/examples/speech_job.json`. Replace the placeholder id. Do not guess another field name.
 
 ```bash
 TOKEN=$(cat /path/to/job-store/auth.token)
@@ -36,7 +36,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -o after.mp4 http://127.0.0.1:8765/v1
 
 `home_clean_tips_v1` only draws cleaning text. `stationery_tidy_v1` only draws stationery text. When `script.mode` is `locked`, those locked lines are the picture text and must match the template. The brief is metadata and is not required to match. When `script.mode` is `generate`, the brief is the input and must match. On-screen lines are measured and wrapped. A generate success reports top-level `model_host` `local_file`. A missing model stays `unavailable`.
 
-`audio_source` on a speech job is `synthetic`, `declared_recording`, or omitted. Omitted is stored as `unknown`. The service does not turn an upload into a human-voice claim.
+`audio_source` on a speech job is `synthetic`, `declared_recording`, or omitted. Omitted is stored as `unknown`. The report writes `synthetic_status`: `declared_synthetic`, `declared_not_synthetic`, or `unknown`. `human_speech_verified` stays false. The service does not turn an upload or a declaration into a human-voice claim. A brief that asks to pour cleaner back is rejected before inference and does not produce an MP4. Locked lines the fixed picture cannot show are `template_cannot_show` and are not rendered.
 
 Optional installs are pinned in `requirements-local.txt`. System package `libegl1` is required before MediaPipe will load. Weights are not in the archive. Fetch them yourself and check the hashes:
 

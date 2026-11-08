@@ -120,7 +120,7 @@ def main(argv):
         "asr": f"faster-whisper {model_name}, MIT, word_timestamps, cpu int8, one thread",
         "asr_weights": "https://huggingface.co/Systran/faster-whisper-base",
         "audio_source": args.audio_source,
-        "synthetic_test": True if args.audio_source == "synthetic" else None,
+        "synthetic_status": synthetic_status(args.audio_source),
         "human_speech_verified": False,
         "heard_by_asr": " ".join(w["word"] for w in words),
         "word_count": len(words),
@@ -177,6 +177,14 @@ def wer(ref, hyp):
 def cer(ref, hyp):
     left, right = _norm_text(ref), _norm_text(hyp)
     return _edit(list(left), list(right)) / max(len(left), 1)
+
+
+def synthetic_status(source):
+    return {
+        "synthetic": "declared_synthetic",
+        "declared_recording": "declared_not_synthetic",
+        "unknown": "unknown",
+    }[source]
 
 
 def letter_ratio(text):
