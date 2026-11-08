@@ -48,16 +48,16 @@ const SCENES = [
   { chapter: 'C1', from: CUES.card, to: CUES.end, draw: threeChecks, action: 'three checks land one after another', in: { type: 'dissolve', dur: 0.32 }, amb: { kind: 'room', gain: 0.04 } },
 ];
 const SFX = [
-  { at: 0.2, voice: 'foley', kind: 'cloth', gain: 0.42, wet: 0.2 },
-  { at: 2.2, voice: 'foley', kind: 'cloth', gain: 0.3, wet: 0.16 },
-  { at: 5.4, voice: 'tick', gain: 0.34, wet: 0.08 },
-  { at: 7.2, voice: 'foley', kind: 'tap', gain: 0.36, wet: 0.18 },
-  { at: 10.4, voice: 'foley', kind: 'tap', gain: 0.34, wet: 0.2 },
-  { at: 12.6, voice: 'foley', kind: 'tap', gain: 0.28, wet: 0.16 },
-  { at: 15.6, voice: 'tick', gain: 0.3, wet: 0.06 },
-  { at: 16.4, voice: 'tick', gain: 0.26, wet: 0.06 },
+  { at: 0.2, voice: 'foley', kind: 'step', gain: 0.2, wet: 0.05 },
+  { at: 2.2, voice: 'foley', kind: 'step', gain: 0.16, wet: 0.04 },
+  { at: 5.4, voice: 'tick', gain: 0.18, wet: 0.04 },
+  { at: 7.2, voice: 'foley', kind: 'tap', gain: 0.2, wet: 0.06 },
+  { at: 10.4, voice: 'foley', kind: 'tap', gain: 0.18, wet: 0.05 },
+  { at: 12.6, voice: 'foley', kind: 'step', gain: 0.16, wet: 0.04 },
+  { at: 15.6, voice: 'tick', gain: 0.16, wet: 0.03 },
+  { at: 16.4, voice: 'tick', gain: 0.14, wet: 0.03 },
 ];
-const ROOM = { secs: 1.4, decay: 2.2, tone: 2800 };
+const ROOM = { secs: 1.1, decay: 2.4, tone: 1400 };
 const ARRANGEMENT = [
   { section: 'sweep', from: CUES.sweep, to: CUES.spray, parts: ['pad', 'kick'] },
   { section: 'spray', from: CUES.spray, to: CUES.sink, parts: ['pad', 'kick', 'pluck'] },
@@ -100,9 +100,35 @@ function clothAt(g, x, y, tilt) {
   g.fillStyle = PALETTE.clothEdge; g.fillRect(-0.16, -0.02, 0.32, 0.018);
   g.restore();
 }
+let COPY_LINES = null;
+function loadCopy() {
+  return new Promise((ok, fail) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', 'copy.json');
+    x.onload = () => {
+      if (x.status !== 0 && x.status !== 200) { fail(new Error('copy.json ' + x.status)); return; }
+      try {
+        const data = JSON.parse(x.responseText);
+        if (!data || !Array.isArray(data.lines) || data.lines.some((s) => typeof s !== 'string')) throw new Error('copy.json lines');
+        COPY_LINES = data.lines;
+        const sample = COPY_LINES.filter(Boolean).slice(0, 4);
+        TYPE.check.strings = { display: sample.slice(0, 2), text: sample.slice(2, 4) };
+        ok();
+      } catch (e) { fail(e); }
+    };
+    x.onerror = () => fail(new Error('copy.json'));
+    x.send();
+  });
+}
+function lineAt(i, fallback) {
+  const rows = COPY_LINES && COPY_LINES.length ? COPY_LINES : [];
+  const s = rows[i] || rows[rows.length - 1] || '';
+  return s.trim() ? s : fallback;
+}
 function lineText(g, S, str, y, k) {
   const show = clamp(k);
-  text(g, S, str, 0, y, 0.072, PALETTE.ink, 1, null, { reveal: show, spread: 0.35, weight: 700 });
+  const size = str.length > 10 ? 0.052 : 0.072;
+  text(g, S, str, 0, y, size, PALETTE.ink, 1, null, { reveal: show, spread: 0.35, weight: 700 });
 }
 function counterSweep(g, k, t, S) {
   // dolly in, 4.8 s, ease-out, toward the cloth
@@ -118,7 +144,7 @@ function counterSweep(g, k, t, S) {
       dot(g, S, along, 0.02 + fall, 0.02, PALETTE.accent, along < lerp(-0.55, 0.62, wipe) ? 0 : 0.95);
     }
     clothAt(g, lerp(-0.58, 0.62, wipe), 0.12 + Math.sin(t * 8) * 0.03, -0.35 + 0.5 * Math.sin(t * 6));
-    lineText(g, S, '先清台面', -0.58, MOTION.at(t, 0.15, 0.4));
+    lineText(g, S, lineAt(0, '先清台面'), -0.58, MOTION.at(t, 0.15, 0.4));
   });
 }
 function sprayWipe(g, k, t, S) {
@@ -138,7 +164,7 @@ function sprayWipe(g, k, t, S) {
     }
     const sweep = EASE.inOut((Math.sin(t * 2.2) + 1) / 2);
     clothAt(g, lerp(0.15, 0.55, sweep), 0.22, 0.4);
-    lineText(g, S, local < 0.45 ? '喷一点' : '顺纹擦开', -0.58, pump);
+    lineText(g, S, local < 0.45 ? lineAt(1, '喷一点') : lineAt(2, '顺纹擦开'), -0.58, pump);
   });
 }
 function rinsePlate(g, k, t, S) {
@@ -159,17 +185,17 @@ function rinsePlate(g, k, t, S) {
     g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
     const scrub = (Math.sin(t * 5.5) + 1) / 2;
     fillRR(g, -0.2 + scrub * 0.36, 0.02 + Math.sin(t * 5.5) * 0.05, 0.2, 0.12, 0.03, PALETTE.sponge);
-    lineText(g, S, '热水过盘', -0.62, flow);
+    lineText(g, S, lineAt(3, '热水过盘'), -0.62, flow);
   });
 }
 function threeChecks(g, k, t, S) {
   // push in, 3 s, ease-out, on the checks
   const cam = CAM.base();
   CAM.pushTo(cam, EASE.out(k), 0, 0.02, 1.08, 0.92);
-  const rows = ['台面', '喷擦', '过盘'];
+  const rows = [lineAt(5, '台面'), lineAt(6, '喷擦'), lineAt(7, '过盘')];
   plane(g, S, cam, 0.4, () => wall(g));
   plane(g, S, cam, 0, () => {
-    lineText(g, S, '三步做完', -0.55, MOTION.at(t, CUES.card, 0.35));
+    lineText(g, S, lineAt(4, '三步做完'), -0.55, MOTION.at(t, CUES.card, 0.35));
     const sweep = (Math.sin((t - CUES.card) * 4) + 1) / 2;
     clothAt(g, lerp(-0.45, 0.45, sweep), 0.55, 0.2);
     rows.forEach((word, i) => {

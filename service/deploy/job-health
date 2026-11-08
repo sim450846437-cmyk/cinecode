@@ -1,0 +1,15 @@
+#!/bin/sh
+# Local health check. Prints the JSON body. Exit 1 when the process is down.
+set -eu
+PORT="${1:-8765}"
+python3 - "$PORT" <<'PY'
+import sys, urllib.request
+port = sys.argv[1]
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/health", timeout=2) as resp:
+        print(resp.read().decode())
+        sys.exit(0 if resp.status == 200 else 1)
+except Exception as exc:
+    print(exc, file=sys.stderr)
+    sys.exit(1)
+PY

@@ -331,7 +331,7 @@ my-film/
 
 ## Local job adapter
 
-`scripts/job_service.py` is a queue for one preauthorized Quick-mode motion template, `home_clean_tips_v1`. It listens on `127.0.0.1` only. A job creates a film folder and runs that folder's `tools/make.py draft`, which is the kit's capture, master and check path. The adapter does not add a model, a face swap, a background replacement, a talking-head editor or a copywriting API. A script that is not the template's locked lines is `blocked` and is not rendered. `profile full` is blocked, because `make.py final` waits for an independent viewer and a user OK, and the adapter does not forge either one. Details: `service/README.md`.
+`scripts/job_service.py` is a localhost queue. It typesets the caller's own locked text into the Quick draft `home_clean_tips_v1` and runs that film's `tools/make.py draft`. Asking it to invent new lines is stored as `blocked`: there is no model host, and typesetting is not treated as AI writing. A drawn-face warp and a green-screen chromakey are separate tools with synthetic inputs. A short espeak-ng take can be pause-trimmed when that program is installed. `profile full` stays blocked, because `make.py final` waits for an independent viewer and a user OK. The process listens on `127.0.0.1` only. A handoff for another machine is `service/deploy/`. Details: `service/README.md`.
 
 ## Tests
 

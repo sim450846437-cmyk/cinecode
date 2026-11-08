@@ -1,0 +1,43 @@
+#!/bin/sh
+# Foreground supervisor. Restarts the job process when that process exits,
+# for as long as this supervisor itself stays alive.
+# It does not survive a host reboot, a container recreate, or tini exiting.
+# nohup of the job process alone does not restart it after a crash.
+set -eu
+ROOT=""
+PORT="8765"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) ROOT="$2"; shift 2 ;;
+    --port) PORT="$2"; shift 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$ROOT" ]; then
+  echo "need --root" >&2
+  exit 2
+fi
+KIT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+mkdir -p "$ROOT"
+if [ "$PORT" = "0" ]; then
+  echo "refusing port 0" >&2
+  exit 2
+fi
+case "$PORT" in
+  ''|*[!0-9]*) echo "port must be numeric" >&2; exit 2 ;;
+esac
+printf '%s\n' "$$" > "$ROOT/supervise.pid"
+rm -f "$ROOT/stop"
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; exit 0' TERM INT
+child=""
+while [ ! -f "$ROOT/stop" ]; do
+  python3 "$KIT/scripts/job_service.py" --root "$ROOT" serve --port "$PORT" >> "$ROOT/supervise.log" 2>&1 &
+  child=$!
+  printf '%s\n' "$child" > "$ROOT/child.pid"
+  wait "$child" || true
+  if [ -f "$ROOT/stop" ]; then
+    exit 0
+  fi
+  printf '%s\n' "child $child exited; restarting" >> "$ROOT/supervise.log"
+  sleep 1
+done

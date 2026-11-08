@@ -52,18 +52,19 @@ class FakeRunner:
 class Validate(unittest.TestCase):
     def test_capabilities_do_not_claim_new_models(self):
         by_id = {item["id"]: item["status"] for item in job.CAPABILITIES}
-        self.assertEqual(by_id["motion_video"], "preauthorized_template_only")
-        self.assertEqual(by_id["face_swap"], "unavailable")
-        self.assertEqual(by_id["background_replace"], "unavailable")
+        self.assertEqual(by_id["motion_video"], "user_text_typeset")
+        self.assertEqual(by_id["face_swap"], "synthetic_warp_only")
+        self.assertEqual(by_id["background_replace"], "chromakey")
         self.assertEqual(by_id["one_click_replace"], "unavailable")
-        self.assertEqual(by_id["copywriting"], "unavailable")
-        self.assertEqual(by_id["word_accurate_talking_head_edit"], "needs_external_backend")
+        self.assertEqual(by_id["copywriting"], "blocked_no_model_host")
+        self.assertEqual(by_id["word_accurate_talking_head_edit"], "espeak_measured_times")
 
     def test_unsupported_capabilities_are_422(self):
-        for task in ("face_swap", "background_replace", "word_accurate_talking_head_edit", "copywriting", "one_click_replace"):
-            status, payload = job.validate({"task_type": task})
-            self.assertEqual(status, 422, task)
-            self.assertEqual(payload["error"]["code"], "unsupported_capability")
+        status, payload = job.validate({"task_type": "one_click_replace"})
+        self.assertEqual(status, 422)
+        self.assertEqual(payload["error"]["code"], "unsupported_capability")
+        status, payload = job.validate({"task_type": "no_such_task"})
+        self.assertEqual(status, 422)
 
     def test_rejects_replacement_assets_shell_and_unknown_fields(self):
         status, payload = job.validate(request(replacement_target={"path": "/etc/passwd"}))
@@ -86,16 +87,27 @@ class Validate(unittest.TestCase):
             job.draft_argv(Path("/tmp/film"), "1;rm")
 
     def test_mismatched_script_full_profile_and_language_are_blocked_not_rendered(self):
-        kind, norm, message = job.validate(request(script={"text": "写一段全新的广告", "mode": "locked"}))
+        kind, norm, _ = job.validate(request(script={"text": "先擦一遍\n再冲水", "mode": "locked"}))
+        self.assertEqual(kind, "ok")
+        self.assertEqual(norm["text_source"], "user_locked")
+        self.assertEqual(norm["lines"][0], "先擦一遍")
+        kind, norm, message = job.validate(request(script={"text": "请根据简介新写一套文案", "mode": "generate"}))
         self.assertEqual(kind, "blocked")
-        self.assertEqual(norm["blocked_code"], "script_not_template_lock")
-        self.assertIn("automatic copy", message)
+        self.assertEqual(norm["blocked_code"], "model_host_unavailable")
+        self.assertIn("not AI writing", message)
+        status, payload = job.validate(request(script={"text": "x" * 241, "mode": "locked"}))
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "text_rejected")
+        lines = job.prepare_lines("</script><img src=x onerror=alert(1)>\nHello 你好")
+        self.assertTrue(any("</script>" in line for line in lines))
         kind, norm, _ = job.validate(request(output={
             "profile": "full", "width": 1080, "height": 1920, "duration_s": 18, "fps": 24, "language": "zh-CN"}))
         self.assertEqual(norm["blocked_code"], "upstream_final_gate")
         kind, norm, _ = job.validate(request(output={
             "profile": "draft", "width": 540, "height": 960, "duration_s": 18, "fps": 24, "language": "en"}))
-        self.assertEqual(norm["blocked_code"], "language_mismatch")
+        self.assertEqual(kind, "ok")
+        self.assertEqual(norm["text_source"], "template_default")
+        self.assertTrue(norm["lines"][0].startswith("先"))
 
 
 class Queue(unittest.TestCase):
@@ -120,9 +132,9 @@ class Queue(unittest.TestCase):
         status, conflict = self.submit(idempotency_key="same-key", brief="a different brief text")
         self.assertEqual(status, 409)
         self.assertEqual(conflict["error"]["code"], "idempotency_conflict")
-        status, blocked = self.submit(script={"text": "另一套文案", "mode": "locked"}, idempotency_key="blocked-copy")
+        status, blocked = self.submit(script={"text": "请创作一套新文案", "mode": "generate"}, idempotency_key="blocked-copy")
         self.assertEqual(blocked["state"], "blocked")
-        self.assertEqual(blocked["error"]["code"], "script_not_template_lock")
+        self.assertEqual(blocked["error"]["code"], "model_host_unavailable")
         self.assertIsNone(blocked["artifact"])
         status, queued = self.submit(idempotency_key="cancel-me")
         code, payload = self.store.cancel(queued["job_id"])
@@ -220,8 +232,16 @@ class Http(unittest.TestCase):
         self.assertEqual(payload["state"], "queued")
         status, payload = self.call("POST", f"/v1/jobs/{job_id}/cancel", token=self.token)
         self.assertEqual(payload["state"], "cancelled")
-        status, payload = self.call("POST", "/v1/jobs", {"task_type": "face_swap"}, self.token)
+        status, payload = self.call("POST", "/v1/jobs", {"task_type": "one_click_replace"}, self.token)
         self.assertEqual(status, 422)
+        status, health = self.call("GET", "/v1/health", token=None)
+        self.assertEqual(status, 200)
+        self.assertFalse(health["boot_persistent"])
+        token_b = self.store.add_bot("botb")
+        status, owned = self.call("POST", "/v1/jobs", request(idempotency_key="owned-by-operator"), self.token)
+        status, denied = self.call("GET", f"/v1/jobs/{owned['job_id']}", token=token_b)
+        self.assertEqual(status, 403)
+        self.assertEqual(denied["error"]["code"], "forbidden")
         with self.assertRaises(SystemExit):
             job.make_server(self.store, "0.0.0.0", 0)
 

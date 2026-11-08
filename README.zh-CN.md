@@ -331,7 +331,7 @@ my-film/
 
 ## 本地任务队列
 
-`scripts/job_service.py` 只在 `127.0.0.1` 上为一份预先允许的快速模式模板（`home_clean_tips_v1`）排队。任务在它自己建的影片目录里运行 `tools/make.py draft`，也就是这套工具的采集、母带和检查路径。它不新增模型，也不提供换脸、背景替换、口播重剪或文案接口。文案不是模板锁定稿时，任务为 `blocked`，不会渲染。`profile full` 会被挡住，因为 `make.py final` 要等独立观众和用户确认，适配器不会伪造这两步。说明见 `service/README.md`。
+`scripts/job_service.py` 只在 `127.0.0.1` 上排队。它把调用方锁定的原文排进快速模式草稿 `home_clean_tips_v1`，再运行该片的 `tools/make.py draft`。要求它根据简介新写文案时，任务记为 `blocked`：没有模型宿主，排字也不算 AI 创作。另有两件合成素材工具：绘制人脸的三角变形，以及绿幕抠像。安装了 espeak-ng 时，可以按实测词长做停顿裁切。`profile full` 仍然挡住，因为 `make.py final` 要等独立观众和用户确认。移交给另一台机器的说明在 `service/deploy/`。详见 `service/README.md`。
 
 ## 测试
 

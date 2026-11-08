@@ -6,8 +6,8 @@ Synthetic by choice: every event sound is made in the page, because this preauth
 
 | time | event | sound |
 |---|---|---|
-| 0.20 | cloth meets the crumbs | foley cloth |
-| 2.20 | cloth crosses the counter | foley cloth |
+| 0.20 | cloth meets the crumbs | foley step, low |
+| 2.20 | cloth crosses the counter | foley step, low |
 | 5.40 | spray leaves the bottle | tick |
 | 7.20 | the wipe circle lands | foley tap |
 | 10.40 | sponge meets the plate | foley tap |

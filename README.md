@@ -331,7 +331,7 @@ filmim/
 
 ## Yerel iş kuyruğu
 
-`scripts/job_service.py`, önceden izin verilmiş tek bir Hızlı mod şablonu (`home_clean_tips_v1`) için yalnızca `127.0.0.1` üzerinde dinleyen bir kuyruktur. İş, kendi açtığı film klasöründe `tools/make.py draft` çalıştırır; bu, kitin yakalama, master ve kontrol yoludur. Yeni bir model, yüz değiştirme, arka plan değiştirme, konuşan kafa kurgusu ya da metin yazarlığı API'si eklemez. Şablonun kilitli metni olmayan bir yazı `blocked` olur ve render edilmez. `profile full` bloklanır: `make.py final` bağımsız bir izleyici ve kullanıcının onayını bekler, adaptör bu iki kapıyı taklit etmez. Ayrıntı: `service/README.md`.
+`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Çağıranın kilitlediği metni Hızlı taslak `home_clean_tips_v1` içine dizer ve o filmin `tools/make.py draft` komutunu çalıştırır. Metni bir briften üretmesini istemek işi `blocked` yapar: bir model barındırıcısı yoktur ve dizgi, yapay zekâ yazarlığı sayılmaz. Çizilmiş yüzlerin üçgen aktarımı ve yeşil perde chromakey ayrı araçlardır. espeak-ng kuruluysa kısa bir konuşma, ölçülmüş söz süreleriyle duraklardan kırpılabilir. `profile full` bloklu kalır; `make.py final` bağımsız bir izleyici ve kullanıcının onayını bekler. Başka bir makineye devir `service/deploy/` altındadır. Ayrıntı: `service/README.md`.
 
 ## Testler
 

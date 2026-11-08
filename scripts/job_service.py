@@ -45,32 +45,48 @@ ENV_DROP = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AWS_", "GITHUB"
 
 ALLOWED_TEMPLATES = {"home_clean_tips_v1"}
 UNSUPPORTED = {
-    "face_swap": "No face-replacement model or tool is in this kit. A drawn character is not a face swap.",
-    "background_replace": "No background-replacement model. Drawing a background in code does not replace a plate.",
-    "word_accurate_talking_head_edit": (
-        "footage_cut.py can trim from a word transcript the caller already measured. "
-        "Whisper is not bundled, and cuts that change meaning stay an approval. This adapter does not run that path."
-    ),
-    "copywriting": "Script writing in the skill is an interactive agent step. This process has no model host.",
     "one_click_replace": "No one-click replace tool. replacement_target is rejected on motion_video.",
 }
 CAPABILITIES = [
     {
         "id": "motion_video",
-        "status": "preauthorized_template_only",
+        "status": "user_text_typeset",
         "template_id": "home_clean_tips_v1",
         "detail": (
-            "Renders the checked-in Quick-mode draft through tools/make.py. "
-            "This is not arbitrary-copy generation. profile full is blocked: "
-            "make.py final waits for an independent viewer and a user OK this adapter will not forge."
+            "Typesets the caller's locked text into the checked-in Quick draft and renders it with tools/make.py. "
+            "script.mode generate is blocked: there is no model host, and typesetting is not treated as AI writing. "
+            "profile full stays blocked because make.py final waits for an independent viewer and a user OK."
         ),
     },
-    {"id": "face_swap", "status": "unavailable", "detail": UNSUPPORTED["face_swap"]},
-    {"id": "background_replace", "status": "unavailable", "detail": UNSUPPORTED["background_replace"]},
-    {"id": "word_accurate_talking_head_edit", "status": "needs_external_backend", "detail": UNSUPPORTED["word_accurate_talking_head_edit"]},
-    {"id": "copywriting", "status": "unavailable", "detail": UNSUPPORTED["copywriting"]},
+    {
+        "id": "copywriting",
+        "status": "blocked_no_model_host",
+        "detail": "Creating new lines from a brief needs a non-interactive model. None is configured. The job is stored as blocked and not rendered.",
+    },
+    {
+        "id": "face_swap",
+        "status": "synthetic_warp_only",
+        "detail": (
+            "Triangle warp of two drawings made by this tool. A photograph is refused. "
+            "No landmark-model weights are shipped."
+        ),
+    },
+    {
+        "id": "background_replace",
+        "status": "chromakey",
+        "detail": "ffmpeg chromakey on a green-screen frame this tool draws. It is not a person-segmentation model.",
+    },
+    {
+        "id": "word_accurate_talking_head_edit",
+        "status": "espeak_measured_times",
+        "detail": (
+            "espeak-ng synthesizes a short English take, each word's wav is measured, footage_cut.py trims pauses. "
+            "Meaning flags are listed and not applied. Whisper is not run. If espeak-ng is missing the job is blocked."
+        ),
+    },
     {"id": "one_click_replace", "status": "unavailable", "detail": UNSUPPORTED["one_click_replace"]},
 ]
+MAX_QUEUED_PER_BOT = 2
 
 
 class JobFailure(Exception):
@@ -118,12 +134,51 @@ def load_manifest(template_id):
     return root, data
 
 
+def prepare_lines(text, limit=240, max_lines=8):
+    """Turn caller text into on-screen lines. The text is data, never script source."""
+    import unicodedata
+    if not isinstance(text, str):
+        raise ValueError("text must be a string")
+    raw = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n")
+    if any(ord(ch) < 32 and ch not in "\n\t" for ch in raw):
+        raise ValueError("control characters are rejected")
+    raw = raw.replace("\t", " ").strip()
+    if not raw:
+        raise ValueError("text is empty")
+    if len(raw) > limit:
+        raise ValueError(f"text is longer than {limit} characters")
+    lines = []
+    for part in raw.split("\n"):
+        part = " ".join(part.split())
+        if not part:
+            continue
+        latin = sum(ch.isascii() for ch in part) / len(part) > 0.8
+        width = 28 if latin else 12
+        while part:
+            lines.append(part[:width])
+            part = part[width:]
+            if len(lines) > max_lines:
+                raise ValueError(f"text wraps past {max_lines} lines")
+    if not lines:
+        raise ValueError("text is empty")
+    return lines
+
+
+def _motion_output(body):
+    output = body.get("output")
+    if not isinstance(output, dict):
+        return error_body("invalid_field", "output must be an object", "request")
+    if set(output) != {"profile", "width", "height", "duration_s", "fps", "language"}:
+        return error_body("invalid_field", "output fields must be profile, width, height, duration_s, fps, language", "request")
+    return output
+
+
 def validate(body):
     if not isinstance(body, dict):
         return error_body("invalid_json", "the body must be a JSON object", "request")
     unknown = sorted(set(body) - {
         "task_type", "template_id", "asset_ids", "brief", "script", "replacement_target",
-        "output", "timeout_s", "policy_id", "idempotency_key", "budget",
+        "output", "timeout_s", "policy_id", "idempotency_key", "budget", "mode",
     })
     if unknown:
         return error_body("unknown_field", "unknown fields: " + ", ".join(unknown), "request")
@@ -132,6 +187,8 @@ def validate(body):
         return error_body("invalid_field", "task_type must be a string", "request")
     if task in UNSUPPORTED:
         return error_body("unsupported_capability", UNSUPPORTED[task], "capability", http=422)
+    if task in ("copywriting", "face_swap", "background_replace", "word_accurate_talking_head_edit"):
+        return _validate_special(body, task)
     if task != "motion_video":
         return error_body("unsupported_capability", "task_type is not supported", "capability", http=422)
     template_id = body.get("template_id")
@@ -176,7 +233,7 @@ def validate(body):
         return error_body("invalid_field", "output fields must be profile, width, height, duration_s, fps, language", "request")
     profile = output["profile"]
     if profile == "full":
-        norm = _normalized(body, brief, timeout_s, idem, output, blocked="upstream_final_gate")
+        norm = _normalized(body, brief, timeout_s, idem, output, blocked="upstream_final_gate", lines=None, source="blocked")
         return "blocked", norm, (
             "profile full calls make.py final, which waits for an independent viewer report and a user OK. "
             "This adapter will not forge that gate. Use profile draft for the preauthorized CPU draft."
@@ -188,26 +245,86 @@ def validate(body):
         return error_body("invalid_field", f"draft size must be {draft['width']}x{draft['height']}", "request")
     if output["duration_s"] != manifest["duration_s"] or output["fps"] != manifest["fps"]:
         return error_body("invalid_field", "duration_s and fps must match the template", "request")
-    if output["language"] != manifest["language"]:
-        norm = _normalized(body, brief, timeout_s, idem, output, blocked="language_mismatch")
-        return "blocked", norm, "This template's on-screen words are fixed zh-CN. Translating them would be a model step this adapter does not have."
+    lang = output.get("language")
+    if not isinstance(lang, str) or not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?", lang):
+        return error_body("invalid_field", "output.language must be a short language tag", "request")
     script = body.get("script", None)
+    lines = [ln for ln in manifest["locked_script"].split("\n") if ln.strip()]
+    source = "template_default"
     if script is not None:
-        if not isinstance(script, dict) or set(script) != {"text", "mode"}:
+        if not isinstance(script, dict) or set(script) - {"text", "mode"} or "mode" not in script:
             return error_body("invalid_field", "script must be {text, mode} or omitted", "request")
-        if script.get("mode") != "locked" or not isinstance(script.get("text"), str):
-            return error_body("invalid_field", "script.mode must be locked and script.text must be a string", "request")
-        if script["text"].replace("\r\n", "\n").strip() != manifest["locked_script"]:
-            norm = _normalized(body, brief, timeout_s, idem, output, blocked="script_not_template_lock")
+        if script.get("mode") == "generate":
+            norm = _normalized(body, brief, timeout_s, idem, output, blocked="model_host_unavailable", lines=None, source="generate")
             return "blocked", norm, (
-                "The script is not this template's locked lines. There is no model host to rewrite the picture, "
-                "and the adapter will not treat template playback as automatic copy generation. Nothing is rendered."
+                "No non-interactive model host is configured, so a brief is not turned into new lines. "
+                "Locked text can still be typeset. Typesetting is not AI writing."
             )
-    norm = _normalized(body, brief, timeout_s, idem, output, blocked=None)
+        if script.get("mode") != "locked" or not isinstance(script.get("text"), str):
+            return error_body("invalid_field", "script.mode must be locked or generate, and locked text must be a string", "request")
+        try:
+            lines = prepare_lines(script["text"])
+        except ValueError as exc:
+            return error_body("text_rejected", str(exc), "request")
+        source = "user_locked"
+    norm = _normalized(body, brief, timeout_s, idem, output, blocked=None, lines=lines, source=source)
     return "ok", norm, ""
 
 
-def _normalized(body, brief, timeout_s, idem, output, blocked):
+def _common(body):
+    timeout_s = body.get("timeout_s", 120)
+    if isinstance(timeout_s, bool) or not isinstance(timeout_s, int) or not 1 <= timeout_s <= 1200:
+        return error_body("invalid_field", "timeout_s must be an integer from 1 to 1200", "request")
+    idem = body.get("idempotency_key")
+    if idem is not None and (not isinstance(idem, str) or not IDEM_RE.fullmatch(idem)):
+        return error_body("invalid_field", "idempotency_key must match [A-Za-z0-9._:-]{1,80}", "request")
+    if body.get("policy_id") != "preauthorized_motion_v1":
+        return error_body("policy_rejected", "policy_id is not the preauthorized policy", "auth", http=403)
+    return {"timeout_s": timeout_s, "idempotency_key": idem}
+
+
+def _validate_special(body, task):
+    common = _common(body)
+    if isinstance(common, tuple):
+        return common
+    timeout_s, idem = common["timeout_s"], common["idempotency_key"]
+    mode = body.get("mode")
+    if task == "copywriting":
+        norm = {
+            "task_type": task, "mode": mode or "generate", "timeout_s": timeout_s,
+            "policy_id": body.get("policy_id"), "idempotency_key": idem, "brief": body.get("brief") or "",
+            "blocked_code": "model_host_unavailable", "lines": None, "text_source": "generate",
+        }
+        return "blocked", norm, (
+            "No non-interactive model host is configured. This job does not write new copy and does not render."
+        )
+    if mode != "synthetic_demo":
+        if task == "face_swap":
+            norm = {
+                "task_type": task, "mode": mode, "timeout_s": timeout_s, "policy_id": body.get("policy_id"),
+                "idempotency_key": idem, "blocked_code": "landmark_model_unavailable", "lines": None,
+                "text_source": None,
+            }
+            return "blocked", norm, (
+                "A photograph needs a landmark model. None is bundled, and inswapper weights are not downloaded. "
+                "Use mode synthetic_demo for the drawn-face warp."
+            )
+        return error_body("invalid_field", "mode must be synthetic_demo for this tool", "request")
+    if task == "word_accurate_talking_head_edit" and not shutil.which("espeak-ng"):
+        norm = {
+            "task_type": task, "mode": mode, "timeout_s": timeout_s, "policy_id": body.get("policy_id"),
+            "idempotency_key": idem, "blocked_code": "speech_tool_missing", "lines": None, "text_source": None,
+        }
+        return "blocked", norm, "espeak-ng is not on PATH. No speech was invented."
+    norm = {
+        "task_type": task, "mode": "synthetic_demo", "timeout_s": timeout_s,
+        "policy_id": body.get("policy_id"), "idempotency_key": idem, "blocked_code": None,
+        "lines": None, "text_source": None, "brief": "",
+    }
+    return "ok", norm, ""
+
+
+def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source):
     script = body.get("script", None)
     if isinstance(script, dict):
         script = {"mode": script.get("mode"), "text": script.get("text")}
@@ -217,6 +334,8 @@ def _normalized(body, brief, timeout_s, idem, output, blocked):
         "asset_ids": [],
         "brief": brief,
         "script": script,
+        "lines": lines,
+        "text_source": source,
         "replacement_target": None,
         "output": {
             "profile": output.get("profile"),
@@ -263,6 +382,16 @@ class Store:
                 log_rel TEXT
             )
         """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS bots (
+                bot_id TEXT PRIMARY KEY,
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(jobs)")}
+        if "bot_id" not in cols:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'operator'")
         self.conn.commit()
 
     def token(self):
@@ -272,19 +401,51 @@ class Store:
             os.chmod(path, 0o600)
         return path.read_text(encoding="utf-8").strip()
 
-    def submit(self, norm, blocked_message=""):
+    def add_bot(self, bot_id):
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,32}", bot_id or "") or bot_id == "operator":
+            raise JobFailure("invalid_bot", "bot id must be a short lowercase name", "auth", False)
+        token = os.urandom(24).hex()
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO bots (bot_id, token_hash, created_at) VALUES (?, ?, ?)",
+                (bot_id, digest(token), now()),
+            )
+            self.conn.commit()
+        return token
+
+    def identify(self, token):
+        if token and hmac.compare_digest(token, self.token()):
+            return {"bot_id": "operator", "scope": "all"}
+        if not token:
+            return None
+        digest_value = digest(token)
+        row = self.conn.execute("SELECT bot_id, token_hash FROM bots WHERE token_hash = ?", (digest_value,)).fetchone()
+        if row is None or not hmac.compare_digest(row["token_hash"], digest_value):
+            return None
+        return {"bot_id": row["bot_id"], "scope": "bot"}
+
+    def submit(self, norm, blocked_message="", bot_id="operator"):
         key = norm.get("idempotency_key")
         body_hash = digest(canonical({k: v for k, v in norm.items() if k != "blocked_code"} | {"blocked_code": norm.get("blocked_code")}))
         stamp = now()
         with self.lock:
             if key:
-                row = self.conn.execute("SELECT * FROM jobs WHERE idempotency_key = ?", (key,)).fetchone()
+                row = self.conn.execute(
+                    "SELECT * FROM jobs WHERE idempotency_key = ? AND bot_id = ?", (key, bot_id)
+                ).fetchone()
                 if row is not None:
                     if row["request_hash"] != body_hash:
                         return 409, {"error": {"code": "idempotency_conflict", "category": "request",
                                                "message": "this idempotency_key was already used for a different request",
                                                "retryable": False}}
                     return 200, self.public(row)
+            queued = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE bot_id = ? AND state IN ('queued', 'rendering', 'validating')",
+                (bot_id,),
+            ).fetchone()["n"]
+            if not norm.get("blocked_code") and queued >= MAX_QUEUED_PER_BOT:
+                return 429, {"error": {"code": "queue_full", "category": "limit",
+                                       "message": f"this bot already has {queued} open jobs", "retryable": True}}
             job_id = "job_" + os.urandom(8).hex()
             work = self.root / "work" / job_id
             work.mkdir(parents=True, exist_ok=False)
@@ -293,21 +454,31 @@ class Store:
             if state == "blocked":
                 err = json.dumps({"code": norm["blocked_code"], "category": "gate",
                                   "message": blocked_message, "retryable": False}, ensure_ascii=False)
-            self.conn.execute(
-                """INSERT INTO jobs (id, idempotency_key, request_hash, request_json, state, stage,
-                   error_json, created_at, updated_at, finished_at, timeout_s, log_rel)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job_id, key, body_hash, canonical(norm), state, "blocked" if state == "blocked" else "queued",
-                 err, stamp, stamp, stamp if state == "blocked" else None, norm["timeout_s"], f"work/{job_id}/job.log"),
-            )
-            self.conn.commit()
+            try:
+                self.conn.execute(
+                    """INSERT INTO jobs (id, idempotency_key, request_hash, request_json, state, stage,
+                       error_json, created_at, updated_at, finished_at, timeout_s, log_rel, bot_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (job_id, key, body_hash, canonical(norm), state, "blocked" if state == "blocked" else "queued",
+                     err, stamp, stamp, stamp if state == "blocked" else None, norm["timeout_s"],
+                     f"work/{job_id}/job.log", bot_id),
+                )
+                self.conn.commit()
+            except sqlite3.IntegrityError:
+                self.conn.rollback()
+                return 409, {"error": {"code": "idempotency_conflict", "category": "request",
+                                       "message": "this idempotency_key is already used", "retryable": False}}
             row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return 202, self.public(row)
 
-    def get(self, job_id):
+    def get(self, job_id, caller=None):
         if not JOB_ID_RE.fullmatch(job_id or ""):
             return None
         row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None or caller is None or caller.get("scope") == "all":
+            return row
+        if row["bot_id"] != caller["bot_id"]:
+            return "forbidden"
         return row
 
     def public(self, row):
@@ -332,6 +503,7 @@ class Store:
             "cancel_requested": bool(row["cancel_requested"]),
             "timeout_s": row["timeout_s"],
             "peak_rss_kb": row["peak_rss_kb"],
+            "bot_id": row["bot_id"] if "bot_id" in row.keys() else "operator",
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "started_at": row["started_at"],
@@ -339,8 +511,11 @@ class Store:
             "log": {"reference": f"/v1/jobs/{row['id']}/logs", "redacted": True},
         }
 
-    def cancel(self, job_id):
-        row = self.get(job_id)
+    def cancel(self, job_id, caller=None):
+        row = self.get(job_id, caller)
+        if row == "forbidden":
+            return 403, {"error": {"code": "forbidden", "category": "auth",
+                                   "message": "this job belongs to another bot", "retryable": False}}
         if row is None:
             return 404, {"error": {"code": "not_found", "category": "request", "message": "no such job", "retryable": False}}
         if row["state"] in ("succeeded", "failed", "blocked", "cancelled", "expired"):
@@ -605,7 +780,12 @@ def splice_film(template_root, film_html):
     end = text.find(HELPERS_MARK)
     if start < 0 or end < 0 or end <= start:
         raise JobFailure("template_invalid", "film.html is missing the Quick-mode markers", "template", False)
-    film_html.write_text(text[:start + len(FILM_MARK)] + "\n" + section.strip() + "\n\n" + text[end:], encoding="utf-8")
+    written = text[:start + len(FILM_MARK)] + "\n" + section.strip() + "\n\n" + text[end:]
+    ready = "window.READY = loadType(TYPE).then(loadFormulas).then(() => document.fonts.ready).then(() => {"
+    chained = "window.READY = loadCopy().then(() => loadType(TYPE)).then(loadFormulas).then(() => document.fonts.ready).then(() => {"
+    if ready not in written:
+        raise JobFailure("template_invalid", "film.html READY hook was not found", "template", False)
+    film_html.write_text(written.replace(ready, chained, 1), encoding="utf-8")
     written = film_html.read_text(encoding="utf-8")
     if "fieldGathers" in written or written.count(FILM_MARK) != 1:
         raise JobFailure("template_invalid", "splice left the example scene or duplicated the marker", "template", False)
@@ -635,8 +815,17 @@ def prepare_project(work, request, env, ctl=None):
         splice_film(root, film / "film.html")
         page = (film / "film.html").read_text(encoding="utf-8")
         brief = request.get("brief") or ""
-        if len(brief) >= 12 and brief in page:
+        script_text = ""
+        if isinstance(request.get("script"), dict):
+            script_text = request["script"].get("text") or ""
+        if (len(brief) >= 12 and brief in page) or (len(script_text) >= 8 and script_text in page):
             raise JobFailure("isolation", "request text leaked into film.html", "security", False)
+        lines = request.get("lines") or [ln for ln in manifest["locked_script"].split("\n") if ln.strip()]
+        (film / "copy.json").write_text(json.dumps({
+            "lines": lines,
+            "source": request.get("text_source") or "template_default",
+            "ai_generated": False,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
         (film / "STATE.md").write_text((root / "STATE.md").read_text(encoding="utf-8"), encoding="utf-8")
         audit = film / "review" / "sound-audit.md"
         audit.parent.mkdir(parents=True, exist_ok=True)
@@ -787,6 +976,46 @@ def finish(store, job_id, state, error=None, artifact=None):
     )
 
 
+class DispatchRunner:
+    """Route a queued job to the tool that matches its task. User text is never a shell argument."""
+
+    def run(self, row, ctl):
+        request = json.loads(row["request_json"])
+        task = request.get("task_type")
+        if task == "motion_video":
+            return CinecodeDraftRunner().run(row, ctl)
+        out = ctl.work_dir / "output"
+        out.mkdir(parents=True, exist_ok=True)
+        env = isolated_env(ctl.work_dir / "cinecode-home")
+        if task == "background_replace":
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "vision_local.py"), "background", "--out", str(out)],
+                           ctl.work_dir, env, "render")
+            produced = out / "after.png"
+        elif task == "face_swap":
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "vision_local.py"), "face", "--out", str(out)],
+                           ctl.work_dir, env, "render")
+            produced = out / "swapped-b-onto-a.png"
+        elif task == "word_accurate_talking_head_edit":
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "speech_edit.py"), "--out", str(out)],
+                           ctl.work_dir, env, "render")
+            produced = out / "after.mp4"
+        else:
+            raise JobFailure("unsupported_capability", "this worker does not run that task", "capability", False)
+        if code != 0 or not produced.is_file():
+            raise JobFailure("render_failed", f"{task} exited {code}", "render", code not in (2, 3))
+        info = {
+            "relative_path": f"output/{produced.name}",
+            "sha256": sha256_file(produced),
+            "bytes": produced.stat().st_size,
+            "delivered": True,
+            "task_type": task,
+            "generation": "local_tool",
+            "model_host": "unavailable",
+            "arbitrary_copy": False,
+        }
+        return {"state": "succeeded", "artifact": info, "error": None}
+
+
 def process_one(store, runner):
     row = store.claim_next()
     if row is None:
@@ -823,14 +1052,14 @@ class JobHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return
 
-    def _authorized(self):
+    def _caller(self):
         header = self.headers.get("Authorization", "")
-        token = getattr(self.server, "token", "")
-        ok = header.startswith("Bearer ") and hmac.compare_digest(header[7:].strip(), token)
-        if not ok:
+        token = header[7:].strip() if header.startswith("Bearer ") else ""
+        caller = self.server.store.identify(token)
+        if not caller:
             self._send(401, {"error": {"code": "unauthorized", "category": "auth",
                                        "message": "Bearer token required", "retryable": False}})
-        return ok
+        return caller
 
     def _send(self, status, payload=None, body=None, content_type="application/json; charset=utf-8"):
         data = body if body is not None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -856,32 +1085,51 @@ class JobHandler(BaseHTTPRequestHandler):
             return None
 
     def do_GET(self):
-        if not self._authorized():
-            return
         path = self.path.split("?", 1)[0]
+        if path == "/v1/health":
+            self._send(200, {"ok": True, "bind": "127.0.0.1", "boot_persistent": False})
+            return
+        caller = self._caller()
+        if not caller:
+            return
         store = self.server.store
         if path == "/v1/capabilities":
-            self._send(200, {"capabilities": CAPABILITIES, "bind": "127.0.0.1", "multi_tenant": False})
+            self._send(200, {"capabilities": CAPABILITIES, "bind": "127.0.0.1", "multi_tenant": False, "bots": True})
             return
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[:2] == ["v1", "jobs"] and parts[3] == "logs":
-            text = store.log_text(parts[2])
+            visible = store.get(parts[2], caller)
+            if visible == "forbidden":
+                self._send(403, {"error": {"code": "forbidden", "category": "auth",
+                                           "message": "this job belongs to another bot", "retryable": False}})
+                return
+            text = store.log_text(parts[2]) if visible else None
             if text is None:
                 self._send(404, {"error": {"code": "not_found", "category": "request", "message": "no such job", "retryable": False}})
                 return
             self._send(200, body=text.encode("utf-8"), content_type="text/plain; charset=utf-8")
             return
         if len(parts) == 4 and parts[:2] == ["v1", "jobs"] and parts[3] == "artifact":
-            target = store.artifact_file(parts[2])
+            visible = store.get(parts[2], caller)
+            if visible == "forbidden":
+                self._send(403, {"error": {"code": "forbidden", "category": "auth",
+                                           "message": "this job belongs to another bot", "retryable": False}})
+                return
+            target = store.artifact_file(parts[2]) if visible else None
             if target is None:
                 self._send(404, {"error": {"code": "not_ready", "category": "request",
                                            "message": "no registered artifact", "retryable": True}})
                 return
             data = target.read_bytes()
-            self._send(200, body=data, content_type="video/mp4")
+            kind = {".mp4": "video/mp4", ".png": "image/png", ".wav": "audio/wav"}.get(target.suffix, "application/octet-stream")
+            self._send(200, body=data, content_type=kind)
             return
         if len(parts) == 3 and parts[:2] == ["v1", "jobs"]:
-            row = store.get(parts[2])
+            row = store.get(parts[2], caller)
+            if row == "forbidden":
+                self._send(403, {"error": {"code": "forbidden", "category": "auth",
+                                           "message": "this job belongs to another bot", "retryable": False}})
+                return
             if row is None:
                 self._send(404, {"error": {"code": "not_found", "category": "request", "message": "no such job", "retryable": False}})
                 return
@@ -893,7 +1141,8 @@ class JobHandler(BaseHTTPRequestHandler):
         self._send(404, {"error": {"code": "not_found", "category": "request", "message": "no such route", "retryable": False}})
 
     def do_POST(self):
-        if not self._authorized():
+        caller = self._caller()
+        if not caller:
             return
         path = self.path.split("?", 1)[0]
         store = self.server.store
@@ -908,16 +1157,16 @@ class JobHandler(BaseHTTPRequestHandler):
                 return
             kind, norm, message = result
             if kind == "blocked":
-                status, payload = store.submit(norm, message)
+                status, payload = store.submit(norm, message, caller["bot_id"])
             else:
-                status, payload = store.submit(norm, "")
+                status, payload = store.submit(norm, "", caller["bot_id"])
             self._send(status, payload)
             return
         if len(parts) == 4 and parts[:2] == ["v1", "jobs"] and parts[3] == "cancel":
             length = int(self.headers.get("Content-Length") or 0)
             if length:
                 self.rfile.read(min(length, 16384))
-            status, payload = store.cancel(parts[2])
+            status, payload = store.cancel(parts[2], caller)
             self._send(status, payload)
             return
         self._send(404, {"error": {"code": "not_found", "category": "request", "message": "no such route", "retryable": False}})
@@ -982,8 +1231,19 @@ def main(argv):
     cancel = sub.add_parser("cancel")
     cancel.add_argument("job_id")
     caps = sub.add_parser("capabilities")
+    bots = sub.add_parser("bots")
+    bots.add_argument("action", choices=["add"])
+    bots.add_argument("bot_id")
     args = parser.parse_args(argv)
     store = Store(args.root)
+    if args.cmd == "bots":
+        try:
+            token = store.add_bot(args.bot_id)
+        except (JobFailure, sqlite3.IntegrityError) as exc:
+            print(json.dumps({"error": getattr(exc, "code", "duplicate_bot")}))
+            return 1
+        print(token)
+        return 0
     if args.cmd == "capabilities":
         print(json.dumps({"capabilities": CAPABILITIES}, ensure_ascii=False, indent=2))
         return 0
@@ -1003,7 +1263,7 @@ def main(argv):
     if args.cmd == "resume":
         print(json.dumps({"requeued": store.resume_orphans()}, ensure_ascii=False))
         return 0
-    runner = CinecodeDraftRunner()
+    runner = DispatchRunner()
     if args.cmd == "run":
         store.resume_orphans()
         while process_one(store, runner):
