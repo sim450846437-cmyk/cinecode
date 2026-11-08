@@ -201,6 +201,24 @@ def declared_audio_source(body):
     return "invalid"
 
 
+UNDRAWN = ("勾勒", "测量", "擦去", "灰尘", "合上盖", "用合上", "勾画")
+DRAWABLE = ("入笔筒", "入筒", "笔筒", "进盒", "入盒", "排整齐", "归位", "收好")
+
+
+def action_not_drawn(template_id, lines):
+    """A noun is not the action this picture draws. Mismatched verbs do not typeset."""
+    if template_id != "stationery_tidy_v1":
+        return []
+    bad = []
+    for line in lines or []:
+        text = str(line).strip()
+        if not text:
+            continue
+        if any(word in text for word in UNDRAWN) or not any(word in text for word in DRAWABLE):
+            bad.append(text)
+    return bad
+
+
 def template_cannot_show(manifest, text):
     """Lines this picture cannot act. A theme keyword is not enough."""
     missing = []
@@ -1216,6 +1234,28 @@ class CinecodeDraftRunner:
                 payload = {}
         if code == 0 and payload.get("passed_screen") and payload.get("prose_quality_pass") is True and payload.get("lines"):
             _, manifest = load_manifest(request["template_id"])
+            mismatched = action_not_drawn(request["template_id"], payload["lines"])
+            if mismatched:
+                return {
+                    "state": "blocked",
+                    "artifact": {
+                        "relative_path": "output/copy-gate.json",
+                        "sha256": sha256_file(dest),
+                        "bytes": dest.stat().st_size,
+                        "delivered": False,
+                        "listened": False,
+                        "prose_quality_pass": False,
+                        "qualified": False,
+                        "lines": payload["lines"],
+                    },
+                    "error": {
+                        "code": "action_not_drawn",
+                        "category": "gate",
+                        "message": "The model lines do not name an action this picture draws. They were not typeset.",
+                        "problems": mismatched,
+                        "retryable": False,
+                    },
+                }
             unseen = template_cannot_show(manifest, "\n".join(payload["lines"]))
             if unseen:
                 return {

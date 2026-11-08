@@ -239,15 +239,12 @@ function forward(k) {
 }
 function pencilsInto(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  const rush = Math.min(1, p / 0.42);
-  const settle = Math.max(0, (p - 0.42) / 0.58);
-  const boxX = lerp(0.48, 0.22, rush) - settle * 0.08;
+  const boxX = lerp(0.42, 0.18, Math.min(1, p / 0.35));
   for (let i = 0; i < 4; i++) {
-    const lag = i * 0.07;
-    const local = Math.max(0, Math.min(1, (rush - lag) / (1 - 3 * 0.07)));
-    pencil(g, lerp(-0.36, 0.02, local) + settle * 0.08, -0.18 + i * 0.13 + settle * 0.04, lerp(0.18, -0.02, local));
+    const local = Math.max(0, Math.min(1, (p - i * 0.12) / 0.42));
+    pencil(g, lerp(-0.38, 0.24, local), -0.16 + i * 0.12, -0.02);
   }
-  coverBox(g, boxX, -0.14 + settle * 0.04, 0.2, 0.58, PALETTE.cloth);
+  coverBox(g, boxX, -0.22, 0.22, 0.56, PALETTE.cloth);
 }
 function eraserInto(g, k) {
   const p = Math.max(0, Math.min(1, k));
@@ -293,8 +290,8 @@ function tidyFinish(g, k) {
   fillRR(g, 0.02, -0.035, 0.05, 0.07, 0.01, '#d4537e');
   g.restore();
   coverBox(g, 0.04, 0.5, 0.16, 0.16, '#c9843a');
-  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.18, boxX - 0.06, Math.min(1, p / 0.75)), -0.18 + i * 0.08, -0.02);
-  coverBox(g, boxX, -0.22, 0.16, 0.4, PALETTE.cloth);
+  for (let i = 0; i < 4; i++) pencil(g, lerp(-0.18, boxX + 0.04, Math.min(1, p / 0.75)), -0.18 + i * 0.08, -0.02);
+  coverBox(g, boxX, -0.22, 0.18, 0.4, PALETTE.cloth);
 }
 function drawKind(g, kind, k) {
   if (kind === 'eraser') eraserInto(g, k);

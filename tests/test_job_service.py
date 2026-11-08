@@ -137,6 +137,11 @@ class Validate(unittest.TestCase):
         kind, themed, _ = job.validate(request(
             brief="写四句文具收纳的步骤", template_id="stationery_tidy_v1", script={"mode": "generate"}))
         self.assertEqual(kind, "ok")
+        bad = ["用铅笔勾勒出收纳空间，保持整洁。", "用橡皮擦去表面灰尘，保持干净。",
+               "用尺子测量空间尺寸，确保准确。", "用合上盖子，保护收纳物品。"]
+        good = ["铅笔入笔筒", "橡皮进盒", "尺子排整齐", "文具收好"]
+        self.assertEqual(len(job.action_not_drawn("stationery_tidy_v1", bad)), 4)
+        self.assertEqual(job.action_not_drawn("stationery_tidy_v1", good), [])
         self.assertEqual(themed["template_id"], "stationery_tidy_v1")
         bare = tempfile.TemporaryDirectory()
         self.addCleanup(bare.cleanup)
