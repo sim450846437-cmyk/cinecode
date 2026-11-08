@@ -32,7 +32,7 @@ SOURCES = {
 NAME_RE = re.compile(r"qwen2\.5-(0\.5b|1\.5b|3b)-instruct-q[0-9].*\.gguf$")
 SYS = (
     "你只输出四行中文，每行8到14个字。不要编号，不要解释，不要品牌。"
-    "四句必须是四个不同的步骤，不能互相重复。"
+    "四句必须是四个不同的步骤，不能互相重复，不能写在同一句。"
     "用过的液体倒进废水，禁止倒回原瓶或原容器。禁止混用清洁剂。"
     "禁止漂白水配洁厕灵或氨。不要写杀菌率。"
 )
@@ -344,7 +344,9 @@ def _has_action(text):
 
 
 def _banner(line):
-    if not line or line.startswith((">", "/", "Exiting", "model", "ftype", "modalities", "using ")):
+    if not line or line.startswith((">", "/", "Exiting", "model", "ftype", "modalities", "using ", "Loading")):
+        return True
+    if "▄" in line or "██" in line:
         return True
     if line.startswith("[") and '"' not in line and not any("\u4e00" <= ch <= "\u9fff" for ch in line):
         return True

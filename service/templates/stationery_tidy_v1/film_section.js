@@ -248,14 +248,14 @@ function pencilsInto(g, k) {
 }
 function eraserInto(g, k) {
   const p = Math.max(0, Math.min(1, k));
-  const boxX = 0.1;
+  const boxX = 0.08;
+  const x = lerp(-0.36, boxX + 0.1, p);
   g.save();
-  g.translate(lerp(-0.32, boxX + 0.04, p), 0.06);
-  g.rotate(lerp(0.4, 0, p));
-  fillRR(g, -0.12, -0.045, 0.18, 0.09, 0.016, '#f7f4ef');
-  fillRR(g, 0.03, -0.045, 0.07, 0.09, 0.012, '#d4537e');
+  g.translate(x, 0.08);
+  fillRR(g, -0.14, -0.04, 0.18, 0.08, 0.016, '#f7f4ef');
+  fillRR(g, 0.02, -0.04, 0.08, 0.08, 0.012, '#d4537e');
   g.restore();
-  coverBox(g, boxX, -0.06, 0.2, 0.24, '#c9843a');
+  coverBox(g, boxX, -0.02, 0.24, 0.2, '#c9843a');
 }
 function rulersNeat(g, k) {
   const p = Math.max(0, Math.min(1, k));
