@@ -94,20 +94,23 @@ def current_capabilities():
             "configured": copy_ok,
             "detail": (
                 "Writes Chinese lines with llama.cpp and an allowlisted Apache-2.0 Qwen2.5 Instruct GGUF. "
-                "A hazard and repetition screen can block the text or ask the model to rewrite once. "
+                "A hazard and repetition screen can block the text. It does not ask for another sample. "
                 "The loader refuses a GGUF larger than half of MemAvailable. One thread. "
                 "Without the files the job is blocked. Typesetting is not used as a substitute."
             ),
         },
         {
             "id": "face_swap",
-            "status": "head_swap_unavailable",
-            "configured": face_ok,
+            "status": "candidate_unverified",
+            "configured": False,
             "detail": (
-                "Full head replacement, face shape plus hair, is not available. "
-                "An interior triangle warp is not a successful result. "
-                "InsightFace inswapper is not used: its weights are not cleared for this package. "
-                "No other free CPU model with a clear licence was found that replaces the hair."
+                "Full head plus hair is candidate_unverified, not an implementation. "
+                "Old stills and 3-frame comparison files are not a rerunnable full-head video. "
+                "The scripts on record are INSwapper inner-face only; those weights are not cleared "
+                "for commercial use, and old portraits are not authorized for a new test. "
+                "Wan2.2-Animate-14B is not wired. Its main code and weights are Apache-2.0; "
+                "auxiliary weights were not reviewed one by one, and replacement can change clothes, "
+                "body, or background. No GPU was visible on the measured host. This service does not download it."
             ),
         },
         {
@@ -499,8 +502,8 @@ def _validate_special(body, task):
         return kind, norm, message if decision else message
     if task == "face_swap":
         return blocked(
-            "head_swap_unavailable",
-            "Full head replacement is not available. An interior triangle warp is not returned as success. InsightFace inswapper is not used.",
+            "candidate_unverified",
+            "Full head plus hair is candidate_unverified. INSwapper inner-face output is not that result, and Wan2.2-Animate-14B is not run.",
             "unavailable",
         )
     if task == "background_replace":
@@ -1411,9 +1414,9 @@ class DispatchRunner:
                 "state": "blocked",
                 "artifact": None,
                 "error": {
-                    "code": "head_swap_unavailable",
+                    "code": "candidate_unverified",
                     "category": "gate",
-                    "message": "Full head replacement is not available. The triangle warp is not run.",
+                    "message": "Full head plus hair is candidate_unverified. No model is downloaded or run for this job.",
                     "retryable": False,
                 },
             }

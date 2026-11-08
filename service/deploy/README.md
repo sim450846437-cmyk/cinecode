@@ -52,7 +52,7 @@ Synthetic portraits and synthetic speech samples are in the review zip, with the
 Optional local routes, all fetched by the operator and none of them packed in the archive:
 
 - Copy: an official llama.cpp `llama-cli` plus `Qwen2.5-0.5B-Instruct` Q4_K_M GGUF (Apache-2.0) from https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF . Set `CINECODE_LLAMA_CLI` and `CINECODE_COPY_MODEL`.
-- Faces: MediaPipe Face Landmarker `face_landmarker.task` (Apache-2.0) from https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task . Set `CINECODE_FACE_MODEL`, plus two photographs in `CINECODE_FACE_A` and `CINECODE_FACE_B`. Use synthetic or otherwise licensed faces. InsightFace inswapper is not used.
+- Faces: full head plus hair stays `candidate_unverified`. MediaPipe Face Landmarker is not a full-head result. InsightFace INSwapper is inner-face only and is not cleared for this package. Wan2.2-Animate-14B is not downloaded. Old portraits are not used for a new test.
 - Background: MediaPipe selfie segmenter (Apache-2.0) from https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite . Set `CINECODE_SEG_MODEL`. Python packages: `mediapipe`, `opencv-python-headless`, `numpy`. `libegl1` is required by the MediaPipe binary.
 - Speech: `espeak-ng` (GPL-3.0-or-later) and `faster-whisper` (MIT weights, downloaded on first use). The utterance is one Mandarin pinyin call, then word timestamps. A missing file leaves the job blocked.
 

@@ -209,17 +209,22 @@ function caption(g, S, str, yNorm, k) {
   });
   g.restore();
 }
-function stain(g, remain) {
-  if (remain <= 0.02) return;
-  g.save();
-  g.globalAlpha = Math.min(1, remain);
-  for (let i = 0; i < 5; i++) {
-    g.fillStyle = i % 2 ? '#9ec4c8' : '#7eb0b6';
+const SPOTS = [[-0.18, 0.02], [-0.04, 0.0], [0.1, 0.03], [-0.12, 0.12], [0.04, 0.13], [0.18, 0.08]];
+function plate(g) {
+  g.fillStyle = PALETTE.plate;
+  g.beginPath(); g.ellipse(0.02, 0.08, 0.36, 0.18, 0, 0, TAU); g.fill();
+  g.strokeStyle = PALETTE.dim; g.lineWidth = 0.014; g.stroke();
+}
+function spotsLeft(g, p) {
+  SPOTS.forEach((xy, i) => {
+    const kill = (i + 1) / SPOTS.length;
+    if (p >= kill) return;
+    const left = 1 - p / kill;
+    g.fillStyle = i % 2 ? '#7eb0b6' : '#5f98a0';
     g.beginPath();
-    g.ellipse(-0.08 + (i % 3) * 0.1, 0.08 + Math.floor(i / 3) * 0.08, 0.055 * remain, 0.03 * remain, 0, 0, TAU);
+    g.ellipse(xy[0], xy[1], 0.07 * Math.max(0.4, left), 0.045 * Math.max(0.4, left), 0, 0, TAU);
     g.fill();
-  }
-  g.restore();
+  });
 }
 function cleanKind(line) {
   const s = line || '';
@@ -251,23 +256,18 @@ function paintClean(g, k, line, S) {
     g.restore();
     return;
   }
-  if (kind === 'done') {
-    g.fillStyle = PALETTE.plate;
-    g.beginPath(); g.ellipse(0.02, 0.08, 0.3, 0.12, 0, 0, TAU); g.fill();
-    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.012; g.stroke();
-    g.save();
-    g.translate(lerp(-0.55, 0.36, p), 0.36);
-    g.rotate(lerp(-0.8, 0.2, p));
-    fillRR(g, -0.3, -0.14, 0.6, 0.28, 0.04, PALETTE.cloth);
-    g.restore();
-    return;
-  }
-  if (kind === 'dry') {
-    g.fillStyle = PALETTE.plate;
-    g.beginPath(); g.ellipse(0.05, 0.12, 0.34, 0.16, 0, 0, TAU); g.fill();
-    g.strokeStyle = PALETTE.dim; g.lineWidth = 0.014; g.stroke();
-    stain(g, 1 - p);
-    fillRR(g, lerp(-0.5, 0.42, stroke(p, 5)), 0.02, 0.36, 0.18, 0.03, PALETTE.sponge);
+  if (kind === 'done' || kind === 'dry') {
+    plate(g);
+    spotsLeft(g, kind === 'done' ? 1 : p);
+    const x = kind === 'done' ? lerp(0.05, 0.34, stroke(p, 2)) : lerp(-0.48, 0.42, stroke(p, 4));
+    fillRR(g, x, 0.02, 0.3, 0.14, 0.03, PALETTE.sponge);
+    if (kind === 'done') {
+      g.save();
+      g.translate(0.02, 0.42);
+      g.rotate(-0.15);
+      fillRR(g, -0.34, -0.1, 0.68, 0.2, 0.04, PALETTE.cloth);
+      g.restore();
+    }
     return;
   }
   const cleared = lerp(-0.55, 0.7, p);

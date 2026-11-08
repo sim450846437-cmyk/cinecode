@@ -17,6 +17,7 @@ prose-quality pass, and the substance list is not a general safety proof.
 Exit 3 when the model cannot run. Exit 4 when the text is rejected.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -312,27 +313,145 @@ def repetition_codes(lines):
     return found
 
 
-def parse_lines(text, brief):
-    """Keep model sentences. Do not drop a step because it shares words with the brief."""
-    chunks = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith((">", "/", "[", "Exiting", "model", "ftype", "modalities", "using ")):
-            continue
-        if "t/s" in line or "available commands" in line or line.startswith("build"):
+ACTION = set("移擦收排放进入抹扫喷整理归贴摆清干吸蘸拿刷洗过")
+NUMBERED = re.compile(r"(?:^|\n)\s*(?:\d{1,2}[.、．]|[（(]\d{1,2}[）)])")
+
+
+def _cjk_count(text):
+    return sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+
+
+def _has_action(text):
+    return any(ch in ACTION for ch in text)
+
+
+def _banner(line):
+    if not line or line.startswith((">", "/", "Exiting", "model", "ftype", "modalities", "using ")):
+        return True
+    if line.startswith("[") and '"' not in line and not any("\u4e00" <= ch <= "\u9fff" for ch in line):
+        return True
+    if "t/s" in line or "available commands" in line or line.startswith("build"):
+        return True
+    return False
+
+
+def _json_array(text):
+    """Use a JSON string list only when the raw text actually parses as one."""
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        return None, "no_json_array"
+    blob = text[start:end + 1]
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return None, "json_invalid"
+    if not isinstance(data, list) or not all(isinstance(item, str) and item.strip() for item in data):
+        return None, "json_not_string_list"
+    return [item.strip() for item in data], "json_verified"
+
+
+def explain_parse(text, brief):
+    """Parsed lines are separate from raw_stdout. Each drop records a reason."""
+    raw = text or ""
+    trace = []
+    kept_blocks = []
+    for raw_line in raw.splitlines() or [""]:
+        line = raw_line.strip()
+        if _banner(line):
+            if line:
+                trace.append({"stage": "banner", "text": line[:240], "reason": "llama_banner"})
             continue
         if brief and line == brief:
+            trace.append({"stage": "filter", "text": line[:240], "reason": "exact_brief"})
             continue
-        chunks.extend(re.split(r"(?<=[。！？])", line))
+        kept_blocks.append(line)
+    body = "\n".join(kept_blocks)
+    items, json_status = _json_array(body)
+    trace.append({"stage": "json", "status": json_status, "count": 0 if items is None else len(items)})
+    pieces = []
+    if items is not None:
+        pieces = items
+    else:
+        numbered = NUMBERED.split(body)
+        if len(numbered) > 1:
+            trace.append({"stage": "numbered", "count": len([p for p in numbered if p.strip()])})
+            chunks = numbered
+        else:
+            chunks = re.split(r"(?<=[。！？；\n])", body)
+            trace.append({"stage": "sentences", "count": len([p for p in chunks if p.strip()])})
+        for chunk in chunks:
+            sentence = chunk.strip().strip(" 0123456789.-、）)")
+            if not sentence:
+                continue
+            clauses = [part.strip() for part in re.split(r"[，、]", sentence) if part.strip()]
+            if len(clauses) > 1 and all(_has_action(part) and _cjk_count(part) >= 2 for part in clauses):
+                trace.append({"stage": "clauses", "text": sentence[:240], "parts": clauses, "reason": "each_clause_has_an_action"})
+                pieces.extend(clauses)
+            else:
+                if len(clauses) > 1:
+                    trace.append({"stage": "clauses", "text": sentence[:240], "reason": "kept_together"})
+                pieces.append(sentence)
     lines = []
-    for chunk in chunks:
-        line = chunk.strip().strip(" 0123456789.-、")
-        if not line or not any("\u4e00" <= ch <= "\u9fff" for ch in line):
+    truncated_tail = ""
+    for index, piece in enumerate(pieces):
+        line = piece.strip().strip(" 0123456789.-、）)")
+        if not line:
+            continue
+        if not any("\u4e00" <= ch <= "\u9fff" for ch in line):
+            trace.append({"stage": "filter", "text": line[:240], "reason": "no_cjk"})
             continue
         if brief and line == brief:
+            trace.append({"stage": "filter", "text": line[:240], "reason": "exact_brief"})
+            continue
+        numbered = json_status != "json_verified" and NUMBERED.search("\n" + body) is not None
+        finished = bool(re.search(r"[。！？；]$", line)) or json_status == "json_verified" or (numbered and _cjk_count(line) >= 4)
+        last = index == len(pieces) - 1
+        if last and not finished:
+            truncated_tail = line
+            trace.append({"stage": "filter", "text": line[:240], "reason": "truncated_tail"})
             continue
         lines.append(line)
-    return lines[:8]
+        trace.append({"stage": "keep", "text": line[:240]})
+    return {
+        "raw_stdout": raw,
+        "lines": lines[:8],
+        "parse_trace": trace,
+        "json_status": json_status,
+        "truncated_tail": truncated_tail,
+        "truncated": bool(truncated_tail),
+        "drafts_are_parsed": True,
+    }
+
+
+def parse_lines(text, brief):
+    """Parsed sentences only. Synonyms of the brief are kept; the exact brief echo is not."""
+    return explain_parse(text, brief)["lines"]
+
+
+def _redact(text):
+    kept = []
+    for line in (text or "").splitlines():
+        if re.search(r"bearer |authorization|api[_-]?key|token|password|secret|credential", line, re.I):
+            continue
+        kept.append(line)
+    return "\n".join(kept[-24:])
+
+
+def _file_sha256(path):
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _stop_reason(stderr, stdout, predict):
+    low = (stderr or "").lower()
+    if "context full" in low or ("n_ctx" in low and "exceed" in low):
+        return "context_limit"
+    if "error" in low and "llama" in low:
+        return "runtime_error"
+    return "not_reported_by_runtime"
 
 
 def llama(cli, model, sys_prompt, prompt, predict):
@@ -342,15 +461,23 @@ def llama(cli, model, sys_prompt, prompt, predict):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env={**os.environ, "LD_LIBRARY_PATH": os.path.dirname(cli)},
     )
+    meta = {
+        "returncode": proc.returncode,
+        "stderr_tail": _redact(proc.stderr),
+        "stop_reason": _stop_reason(proc.stderr, proc.stdout, predict),
+        "n_predict": predict,
+        "ctx": 512,
+        "temp": 0.2,
+        "threads": 1,
+    }
     if proc.returncode != 0:
-        sys.stderr.write(proc.stderr[-1500:])
-        return None
-    return proc.stdout
+        return None, meta
+    return proc.stdout, meta
 
 
 def review_verdict(cli, model, lines):
     prompt = "有安全问题或明显重复就输出 REVISE，否则输出 PASS。\n" + "\n".join(lines)
-    text = llama(cli, model, "你只输出 PASS 或 REVISE。", prompt, 24)
+    text, _meta = llama(cli, model, "你只输出 PASS 或 REVISE。", prompt, 24)
     if not text:
         return "unparsed"
     for line in text.splitlines():
@@ -438,32 +565,60 @@ def main(argv):
             json.dump(payload, handle, ensure_ascii=False, indent=2)
         print(json.dumps({"error": "constraint_needs_review", "unparsed": policy["unparsed"]}, ensure_ascii=False))
         return 4
-    text = llama(cli, model, SYS, brief, 160)
+    text, gen = llama(cli, model, SYS, brief, 160)
     if text is None:
+        payload = {
+            "error": "model_run_failed",
+            "generation": {**gen, "model_sha256": _file_sha256(model), "model_file": os.path.basename(model)},
+            "raw_stdout": None,
+            "lines": [],
+            "drafts_are_parsed": True,
+        }
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
         return 1
-    lines = parse_lines(text, brief)
+    explained = explain_parse(text, brief)
+    lines = explained["lines"]
+    generation = {
+        **gen,
+        "model_file": os.path.basename(model),
+        "model_sha256": _file_sha256(model),
+        "model_size": size_name,
+        "stop_reason": "possible_predict_limit" if explained["truncated"] else gen["stop_reason"],
+    }
     _, substance_problems = apply_policy(brief, lines, constraints)
     problems = output_constraints(brief, lines, constraints) + repetition_codes(lines)
     drafts = [lines]
     revised = False
+    common = {
+        "model": os.path.basename(model),
+        "model_size": size_name,
+        "licence": licence,
+        "source": source,
+        "memory": budget,
+        "threads": 1,
+        "generation": generation,
+        "raw_stdout": explained["raw_stdout"],
+        "raw_stdout_sha256": hashlib.sha256(explained["raw_stdout"].encode("utf-8")).hexdigest(),
+        "parse_trace": explained["parse_trace"],
+        "json_status": explained["json_status"],
+        "truncated": explained["truncated"],
+        "truncated_tail": explained["truncated_tail"],
+        "drafts_are_parsed": True,
+        "ai_generated": True,
+        "revised": False,
+        "prose_quality_pass": False,
+        "listened": False,
+        "brief": brief,
+        "substance_policy": policy,
+        "drafts": drafts,
+        "lines": lines,
+    }
     if not problems:
         payload = {
-            "model": os.path.basename(model),
-            "model_size": size_name,
-            "licence": licence,
-            "source": source,
-            "memory": budget,
-            "threads": 1,
-            "ai_generated": True,
-            "revised": False,
+            **common,
             "passed_screen": True,
-            "prose_quality_pass": False,
-            "listened": False,
             "screen": ["input_constraints", "substance_policy", "repetition_codes"],
-            "brief": brief,
-            "substance_policy": policy,
-            "drafts": drafts,
-            "lines": lines,
             "text": "\n".join(lines),
         }
         with open(args.out, "w", encoding="utf-8") as handle:
@@ -471,22 +626,10 @@ def main(argv):
         print(json.dumps({"lines": lines, "revised": revised, "prose_quality_pass": False}, ensure_ascii=False))
         return 0
     payload = {
-        "model": os.path.basename(model),
-        "model_size": size_name,
-        "licence": licence,
-        "source": source,
-        "memory": budget,
-        "ai_generated": True,
-        "revised": False,
+        **common,
         "passed_screen": False,
-        "prose_quality_pass": False,
-        "listened": False,
         "problems": problems,
         "substance_hits": substance_problems,
-        "substance_policy": policy,
-        "brief": brief,
-        "drafts": drafts,
-        "lines": drafts[-1] if drafts else [],
         "error": "copy_quality_rejected",
     }
     with open(args.out, "w", encoding="utf-8") as handle:

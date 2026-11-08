@@ -32,6 +32,47 @@ class Gate(unittest.TestCase):
         parsed = copy_local.parse_lines(pasted, "写四句清洁步骤")
         self.assertEqual(len(parsed), 4)
         self.assertTrue(parsed[0].startswith("先把台面"))
+
+
+class ParseTrace(unittest.TestCase):
+    def test_saved_clean_text_stays_two_actions_and_is_not_the_raw_field(self):
+        raw = "移开杂物，用湿布擦台面。"
+        report = copy_local.explain_parse(raw, "写四句简短台面清洁步骤")
+        self.assertEqual(report["raw_stdout"], raw)
+        self.assertEqual(report["lines"], ["移开杂物", "用湿布擦台面。"])
+        self.assertTrue(report["drafts_are_parsed"])
+        self.assertIn("too_few_lines", copy_local.repetition_codes(report["lines"]))
+        self.assertFalse(any(step.get("reason") == "no_cjk" for step in report["parse_trace"]))
+
+    def test_saved_stationery_clauses_split_without_inventing_text(self):
+        raw = "铅笔入笔筒，橡皮进盒子。\n尺子排整齐，文具收好。"
+        report = copy_local.explain_parse(raw, "写四句简短文具收纳步骤")
+        self.assertEqual(report["lines"], ["铅笔入笔筒", "橡皮进盒子。", "尺子排整齐", "文具收好。"])
+        self.assertEqual(report["raw_stdout"], raw)
+        self.assertNotIn("too_few_lines", copy_local.repetition_codes(report["lines"]))
+
+    def test_json_is_used_only_when_the_raw_text_parses(self):
+        raw = 'note ["移开杂物", "用湿布擦台面", "擦干水渍", "收好抹布"]'
+        report = copy_local.explain_parse(raw, "清洁")
+        self.assertEqual(report["json_status"], "json_verified")
+        self.assertEqual(len(report["lines"]), 4)
+        self.assertEqual(report["raw_stdout"], raw)
+        broken = copy_local.explain_parse("prefix [not json]", "清洁")
+        self.assertEqual(broken["json_status"], "json_invalid")
+        self.assertNotEqual(broken["lines"], ["移开杂物", "用湿布擦台面", "擦干水渍", "收好抹布"])
+
+    def test_numbered_lines_synonyms_and_a_cut_off_tail(self):
+        numbered = "1、移开杂物\n2、用湿布擦台面\n3、擦干水渍\n4、收好抹布"
+        self.assertEqual(len(copy_local.parse_lines(numbered, "清洁")), 4)
+        synonym = "用湿布把台面抹干净。\n把水印吸掉。\n抹布挂起来。\n杂物放回原处。"
+        kept = copy_local.parse_lines(synonym, "写四句：擦台面、收抹布、擦水渍、移杂物")
+        self.assertEqual(len(kept), 4)
+        self.assertIn("湿布", kept[0])
+        cut = copy_local.explain_parse("移开杂物。用湿布擦", "清洁")
+        self.assertEqual(cut["lines"], ["移开杂物。"])
+        self.assertEqual(cut["truncated_tail"], "用湿布擦")
+        self.assertTrue(cut["truncated"])
+        self.assertIn("too_few_lines", copy_local.repetition_codes(cut["lines"]))
         stationery = ["铅笔放进笔盒。", "橡皮单独装袋。", "尺子竖着摆好。", "便签放在上层。"]
         self.assertNotIn("repeated_phrase", copy_local.repetition_codes(stationery))
         self.assertNotIn("mix_agents", copy_local.hazard_codes(stationery))

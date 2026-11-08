@@ -57,7 +57,7 @@ class Validate(unittest.TestCase):
             os.environ.pop(key, None)
         items = {item["id"]: item for item in job.current_capabilities()}
         self.assertEqual(items["motion_video"]["status"], "user_text_typeset")
-        self.assertEqual(items["face_swap"]["status"], "head_swap_unavailable")
+        self.assertEqual(items["face_swap"]["status"], "candidate_unverified")
         self.assertFalse(items["face_swap"]["configured"])
         self.assertEqual(items["background_replace"]["status"], "selfie_segmenter")
         self.assertFalse(items["background_replace"]["configured"])
@@ -104,7 +104,7 @@ class Validate(unittest.TestCase):
             "task_type": "face_swap", "policy_id": "preauthorized_motion_v1", "timeout_s": 60,
         })
         self.assertEqual(kind, "blocked")
-        self.assertEqual(face["blocked_code"], "head_swap_unavailable")
+        self.assertEqual(face["blocked_code"], "candidate_unverified")
         for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL"):
             os.environ.pop(key, None)
         kind, norm, message = job.validate(request(script={"text": "请根据简介新写一套文案", "mode": "generate"}))
