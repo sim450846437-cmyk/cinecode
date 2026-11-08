@@ -331,7 +331,7 @@ filmim/
 
 ## Yerel iş kuyruğu
 
-`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Çağıranın kilitlediği metni Hızlı taslak `home_clean_tips_v1` içine dizer ve o filmin `tools/make.py draft` komutunu çalıştırır. Metni bir briften üretmesini istemek işi `blocked` yapar: bir model barındırıcısı yoktur ve dizgi, yapay zekâ yazarlığı sayılmaz. Çizilmiş yüzlerin üçgen aktarımı ve yeşil perde chromakey ayrı araçlardır. espeak-ng kuruluysa kısa bir konuşma, ölçülmüş söz süreleriyle duraklardan kırpılabilir. `profile full` bloklu kalır; `make.py final` bağımsız bir izleyici ve kullanıcının onayını bekler. Başka bir makineye devir `service/deploy/` altındadır. Ayrıntı: `service/README.md`.
+`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Çağıranın kilitlediği metni Hızlı taslak `home_clean_tips_v1` içine dizer ve o filmin `tools/make.py draft` komutunu çalıştırır. Hareket işinden briften yeni metin istemek `blocked` kalır: dizgi, yapay zekâ yazarlığı sayılmaz. Ayrı bir metin işi, yerelde llama.cpp ve Apache-2.0 Qwen2.5-0.5B-Instruct GGUF ayarlıysa Çince satırlar yazar; dosyalar yoksa o iş de `blocked` olur. Fotoğraf yüz değişimi ve kişi arka planı, işletmeci Apache-2.0 MediaPipe modellerini getirip fotoğraf verdiğinde çalışır. Sürekli Mandarin konuşması faster-whisper ile kelime zamanı alır, sonra duraklar kırpılır. Ağırlıklar pakete girmez. `profile full` bloklu kalır; `make.py final` bağımsız bir izleyici ve kullanıcının onayını bekler. Başka bir makineye devir `service/deploy/` altındadır. Ayrıntı: `service/README.md`.
 
 ## Testler
 

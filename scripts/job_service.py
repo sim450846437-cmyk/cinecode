@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Localhost queue for one preauthorized cinecode motion template.
 
-The adapter submits a job, runs that job, and returns status plus an MP4.
-It binds to 127.0.0.1 only. It does not add a model, a face swap, a background
-replacement, a talking-head editor, or a copywriting API. Arbitrary copy is
-stored as data and, when it is not the template lock, the job is blocked
-without rendering.
+The adapter submits a job, runs that job, and returns status plus an artifact.
+It binds to 127.0.0.1 only. Motion video typesets locked text; it does not
+invent lines. Copy, photo face swap, person segmentation, and continuous-speech
+ASR run only when the operator has fetched the named local files. Those weights
+are not packed. A missing file is stored as blocked. Drawing a face or a green
+screen is not a successful result.
 
 A supported job renders only the checked-in template. The picture and sound
 go through the film project's own tools/make.py, which is the Quick-mode
@@ -19,6 +20,7 @@ at the job directory so the process does not read ~/.cinecode.
 import argparse
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -47,45 +49,73 @@ ALLOWED_TEMPLATES = {"home_clean_tips_v1"}
 UNSUPPORTED = {
     "one_click_replace": "No one-click replace tool. replacement_target is rejected on motion_video.",
 }
-CAPABILITIES = [
-    {
-        "id": "motion_video",
-        "status": "user_text_typeset",
-        "template_id": "home_clean_tips_v1",
-        "detail": (
-            "Typesets the caller's locked text into the checked-in Quick draft and renders it with tools/make.py. "
-            "script.mode generate is blocked: there is no model host, and typesetting is not treated as AI writing. "
-            "profile full stays blocked because make.py final waits for an independent viewer and a user OK."
-        ),
-    },
-    {
-        "id": "copywriting",
-        "status": "blocked_no_model_host",
-        "detail": "Creating new lines from a brief needs a non-interactive model. None is configured. The job is stored as blocked and not rendered.",
-    },
-    {
-        "id": "face_swap",
-        "status": "synthetic_warp_only",
-        "detail": (
-            "Triangle warp of two drawings made by this tool. A photograph is refused. "
-            "No landmark-model weights are shipped."
-        ),
-    },
-    {
-        "id": "background_replace",
-        "status": "chromakey",
-        "detail": "ffmpeg chromakey on a green-screen frame this tool draws. It is not a person-segmentation model.",
-    },
-    {
-        "id": "word_accurate_talking_head_edit",
-        "status": "espeak_measured_times",
-        "detail": (
-            "espeak-ng synthesizes a short English take, each word's wav is measured, footage_cut.py trims pauses. "
-            "Meaning flags are listed and not applied. Whisper is not run. If espeak-ng is missing the job is blocked."
-        ),
-    },
-    {"id": "one_click_replace", "status": "unavailable", "detail": UNSUPPORTED["one_click_replace"]},
-]
+def _file_ready(name):
+    path = os.environ.get(name, "")
+    return bool(path) and os.path.isfile(path)
+
+
+def current_capabilities():
+    """Honest routes. configured is false until the operator points at local files."""
+    copy_ok = _file_ready("CINECODE_LLAMA_CLI") and _file_ready("CINECODE_COPY_MODEL")
+    face_ok = _file_ready("CINECODE_FACE_MODEL") and _file_ready("CINECODE_FACE_A") and _file_ready("CINECODE_FACE_B")
+    seg_ok = _file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_FACE_A")
+    asr_ok = shutil.which("espeak-ng") is not None and importlib.util.find_spec("faster_whisper") is not None
+    return [
+        {
+            "id": "motion_video",
+            "status": "user_text_typeset",
+            "configured": True,
+            "template_id": "home_clean_tips_v1",
+            "detail": (
+                "Typesets the caller's locked text into the checked-in Quick draft and renders it with tools/make.py. "
+                "script.mode generate stays blocked on this task: typesetting is not AI writing. "
+                "profile full stays blocked because make.py final waits for an independent viewer and a user OK."
+            ),
+        },
+        {
+            "id": "copywriting",
+            "status": "local_gguf",
+            "configured": copy_ok,
+            "detail": (
+                "Writes Chinese lines from a brief with llama.cpp and the Apache-2.0 Qwen2.5-0.5B-Instruct GGUF "
+                "when CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL point at local files. The GGUF is not packed. "
+                "Without those files the job is blocked. The text is model output, not typesetting."
+            ),
+        },
+        {
+            "id": "face_swap",
+            "status": "photo_landmark_warp",
+            "configured": face_ok,
+            "detail": (
+                "MediaPipe Face Landmarker plus a Delaunay warp of two operator-supplied photographs. "
+                "Set CINECODE_FACE_MODEL, CINECODE_FACE_A and CINECODE_FACE_B. Weights are not packed. "
+                "A drawn face is not a successful result."
+            ),
+        },
+        {
+            "id": "background_replace",
+            "status": "selfie_segmenter",
+            "configured": seg_ok,
+            "detail": (
+                "MediaPipe selfie segmenter on a short pan of a photograph, then a background composite. "
+                "Not chromakey. Set CINECODE_SEG_MODEL and CINECODE_FACE_A. The model is not packed."
+            ),
+        },
+        {
+            "id": "word_accurate_talking_head_edit",
+            "status": "whisper_word_times",
+            "configured": asr_ok,
+            "detail": (
+                "One espeak-ng Mandarin utterance, then faster-whisper word timestamps, then a pause trim. "
+                "Words are not concatenated from known durations. Meaning flags are listed and not applied. "
+                "Needs espeak-ng and the faster-whisper package. Whisper weights download on first use and are not packed."
+            ),
+        },
+        {"id": "one_click_replace", "status": "unavailable", "configured": False, "detail": UNSUPPORTED["one_click_replace"]},
+    ]
+
+
+CAPABILITIES = current_capabilities()
 MAX_QUEUED_PER_BOT = 2
 
 
@@ -288,40 +318,61 @@ def _validate_special(body, task):
     if isinstance(common, tuple):
         return common
     timeout_s, idem = common["timeout_s"], common["idempotency_key"]
-    mode = body.get("mode")
+
+    def blocked(code, message, mode=None, brief=""):
+        norm = {
+            "task_type": task, "mode": mode, "timeout_s": timeout_s,
+            "policy_id": body.get("policy_id"), "idempotency_key": idem,
+            "blocked_code": code, "lines": None, "text_source": None, "brief": brief,
+        }
+        return "blocked", norm, message
+
+    def ready(mode, brief=""):
+        norm = {
+            "task_type": task, "mode": mode, "timeout_s": timeout_s,
+            "policy_id": body.get("policy_id"), "idempotency_key": idem,
+            "blocked_code": None, "lines": None, "text_source": None, "brief": brief,
+        }
+        return "ok", norm, ""
+
     if task == "copywriting":
-        norm = {
-            "task_type": task, "mode": mode or "generate", "timeout_s": timeout_s,
-            "policy_id": body.get("policy_id"), "idempotency_key": idem, "brief": body.get("brief") or "",
-            "blocked_code": "model_host_unavailable", "lines": None, "text_source": "generate",
-        }
-        return "blocked", norm, (
-            "No non-interactive model host is configured. This job does not write new copy and does not render."
-        )
-    if mode != "synthetic_demo":
-        if task == "face_swap":
-            norm = {
-                "task_type": task, "mode": mode, "timeout_s": timeout_s, "policy_id": body.get("policy_id"),
-                "idempotency_key": idem, "blocked_code": "landmark_model_unavailable", "lines": None,
-                "text_source": None,
-            }
-            return "blocked", norm, (
-                "A photograph needs a landmark model. None is bundled, and inswapper weights are not downloaded. "
-                "Use mode synthetic_demo for the drawn-face warp."
+        brief = body.get("brief") or ""
+        if not isinstance(brief, str) or not brief.strip() or len(brief) > 200:
+            return error_body("invalid_field", "copywriting brief must be 1 to 200 characters", "request")
+        if not (_file_ready("CINECODE_LLAMA_CLI") and _file_ready("CINECODE_COPY_MODEL")):
+            return blocked(
+                "model_host_unavailable",
+                "No local GGUF is configured. Set CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL. Typesetting is not used as a substitute.",
+                "generate", brief.strip(),
             )
-        return error_body("invalid_field", "mode must be synthetic_demo for this tool", "request")
-    if task == "word_accurate_talking_head_edit" and not shutil.which("espeak-ng"):
-        norm = {
-            "task_type": task, "mode": mode, "timeout_s": timeout_s, "policy_id": body.get("policy_id"),
-            "idempotency_key": idem, "blocked_code": "speech_tool_missing", "lines": None, "text_source": None,
-        }
-        return "blocked", norm, "espeak-ng is not on PATH. No speech was invented."
-    norm = {
-        "task_type": task, "mode": "synthetic_demo", "timeout_s": timeout_s,
-        "policy_id": body.get("policy_id"), "idempotency_key": idem, "blocked_code": None,
-        "lines": None, "text_source": None, "brief": "",
-    }
-    return "ok", norm, ""
+        return ready("generate", brief.strip())
+    if task == "face_swap":
+        if not (_file_ready("CINECODE_FACE_MODEL") and _file_ready("CINECODE_FACE_A") and _file_ready("CINECODE_FACE_B")):
+            return blocked(
+                "landmark_model_unavailable",
+                "Photo face swap needs CINECODE_FACE_MODEL, CINECODE_FACE_A and CINECODE_FACE_B. A drawn face is not accepted.",
+                "photo",
+            )
+        return ready("photo")
+    if task == "background_replace":
+        if not (_file_ready("CINECODE_SEG_MODEL") and _file_ready("CINECODE_FACE_A")):
+            return blocked(
+                "segmenter_unavailable",
+                "Person segmentation needs CINECODE_SEG_MODEL and CINECODE_FACE_A. Green-screen chromakey is not this task.",
+                "photo",
+            )
+        return ready("photo")
+    if task == "word_accurate_talking_head_edit":
+        if shutil.which("espeak-ng") is None:
+            return blocked("speech_tool_missing", "espeak-ng is not on PATH. No speech was invented.", "continuous_asr")
+        if importlib.util.find_spec("faster_whisper") is None:
+            return blocked(
+                "asr_runtime_missing",
+                "faster-whisper is not installed. Per-word concatenation is not used as a substitute.",
+                "continuous_asr",
+            )
+        return ready("continuous_asr")
+    return error_body("unsupported_capability", "task_type is not supported", "capability", http=422)
 
 
 def _normalized(body, brief, timeout_s, idem, output, blocked, lines, source):
@@ -987,16 +1038,22 @@ class DispatchRunner:
         out = ctl.work_dir / "output"
         out.mkdir(parents=True, exist_ok=True)
         env = isolated_env(ctl.work_dir / "cinecode-home")
-        if task == "background_replace":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "vision_local.py"), "background", "--out", str(out)],
+        if task == "copywriting":
+            produced = out / "lines.json"
+            code = ctl.run(
+                [sys.executable, str(KIT / "scripts" / "copy_local.py"),
+                 "--brief", request.get("brief") or "", "--out", str(produced)],
+                ctl.work_dir, env, "render")
+        elif task == "background_replace":
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "segment", "--out", str(out)],
                            ctl.work_dir, env, "render")
-            produced = out / "after.png"
+            produced = out / "segment-after.mp4"
         elif task == "face_swap":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "vision_local.py"), "face", "--out", str(out)],
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "photo_tools.py"), "face", "--out", str(out)],
                            ctl.work_dir, env, "render")
-            produced = out / "swapped-b-onto-a.png"
+            produced = out / "swap-after.jpg"
         elif task == "word_accurate_talking_head_edit":
-            code = ctl.run([sys.executable, str(KIT / "scripts" / "speech_edit.py"), "--out", str(out)],
+            code = ctl.run([sys.executable, str(KIT / "scripts" / "asr_edit.py"), "--out", str(out)],
                            ctl.work_dir, env, "render")
             produced = out / "after.mp4"
         else:
@@ -1009,9 +1066,11 @@ class DispatchRunner:
             "bytes": produced.stat().st_size,
             "delivered": True,
             "task_type": task,
-            "generation": "local_tool",
-            "model_host": "unavailable",
-            "arbitrary_copy": False,
+            "generation": "local_gguf" if task == "copywriting" else "local_tool",
+            "model_host": "local_file" if task == "copywriting" else "local_weights",
+            "arbitrary_copy": task == "copywriting",
+            "ai_generated": task == "copywriting",
+            "listened": False,
         }
         return {"state": "succeeded", "artifact": info, "error": None}
 
@@ -1094,7 +1153,7 @@ class JobHandler(BaseHTTPRequestHandler):
             return
         store = self.server.store
         if path == "/v1/capabilities":
-            self._send(200, {"capabilities": CAPABILITIES, "bind": "127.0.0.1", "multi_tenant": False, "bots": True})
+            self._send(200, {"capabilities": current_capabilities(), "bind": "127.0.0.1", "multi_tenant": False, "bots": True})
             return
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[:2] == ["v1", "jobs"] and parts[3] == "logs":
@@ -1245,7 +1304,7 @@ def main(argv):
         print(token)
         return 0
     if args.cmd == "capabilities":
-        print(json.dumps({"capabilities": CAPABILITIES}, ensure_ascii=False, indent=2))
+        print(json.dumps({"capabilities": current_capabilities()}, ensure_ascii=False, indent=2))
         return 0
     if args.cmd == "submit":
         return submit_file(store, args.file)

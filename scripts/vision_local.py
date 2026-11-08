@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Local pixel tools for two optional jobs. Standard library plus ffmpeg.
+"""Earlier drawn-face and green-screen measurement. The job service does not call this.
 
 background_replace composites a green-screen frame with ffmpeg chromakey.
-face_swap warps one drawn face onto another with triangle barycentric sampling.
-Both inputs are synthetic drawings made here. Neither tool covers a face with a
-flat block or pretends a newly drawn background was a segmentation.
-
-Photographic face swap is refused: this package does not ship a landmark model.
-Weights such as InsightFace inswapper are not downloaded; their licence is not
-cleared for redistribution here.
+face_swap warps one drawn face onto another. Those inputs are drawings.
+A photograph is not handled here.
 """
 import argparse
 import json

@@ -1,5 +1,6 @@
 """Local job adapter. No Chrome. One materialize uses init_film and the system font."""
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -50,14 +51,20 @@ class FakeRunner:
 
 
 class Validate(unittest.TestCase):
-    def test_capabilities_do_not_claim_new_models(self):
-        by_id = {item["id"]: item["status"] for item in job.CAPABILITIES}
-        self.assertEqual(by_id["motion_video"], "user_text_typeset")
-        self.assertEqual(by_id["face_swap"], "synthetic_warp_only")
-        self.assertEqual(by_id["background_replace"], "chromakey")
-        self.assertEqual(by_id["one_click_replace"], "unavailable")
-        self.assertEqual(by_id["copywriting"], "blocked_no_model_host")
-        self.assertEqual(by_id["word_accurate_talking_head_edit"], "espeak_measured_times")
+    def test_capabilities_name_the_real_route_and_stay_unconfigured(self):
+        for key in ("CINECODE_LLAMA_CLI", "CINECODE_COPY_MODEL", "CINECODE_FACE_MODEL",
+                    "CINECODE_FACE_A", "CINECODE_FACE_B", "CINECODE_SEG_MODEL"):
+            os.environ.pop(key, None)
+        items = {item["id"]: item for item in job.current_capabilities()}
+        self.assertEqual(items["motion_video"]["status"], "user_text_typeset")
+        self.assertEqual(items["face_swap"]["status"], "photo_landmark_warp")
+        self.assertFalse(items["face_swap"]["configured"])
+        self.assertEqual(items["background_replace"]["status"], "selfie_segmenter")
+        self.assertFalse(items["background_replace"]["configured"])
+        self.assertEqual(items["one_click_replace"]["status"], "unavailable")
+        self.assertEqual(items["copywriting"]["status"], "local_gguf")
+        self.assertFalse(items["copywriting"]["configured"])
+        self.assertEqual(items["word_accurate_talking_head_edit"]["status"], "whisper_word_times")
 
     def test_unsupported_capabilities_are_422(self):
         status, payload = job.validate({"task_type": "one_click_replace"})
@@ -91,6 +98,13 @@ class Validate(unittest.TestCase):
         self.assertEqual(kind, "ok")
         self.assertEqual(norm["text_source"], "user_locked")
         self.assertEqual(norm["lines"][0], "先擦一遍")
+        for key in ("CINECODE_FACE_MODEL", "CINECODE_FACE_A", "CINECODE_FACE_B"):
+            os.environ.pop(key, None)
+        kind, face, _ = job.validate({
+            "task_type": "face_swap", "policy_id": "preauthorized_motion_v1", "timeout_s": 60,
+        })
+        self.assertEqual(kind, "blocked")
+        self.assertEqual(face["blocked_code"], "landmark_model_unavailable")
         kind, norm, message = job.validate(request(script={"text": "请根据简介新写一套文案", "mode": "generate"}))
         self.assertEqual(kind, "blocked")
         self.assertEqual(norm["blocked_code"], "model_host_unavailable")

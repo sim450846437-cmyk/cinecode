@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Build a short spoken take with espeak-ng, measure each word, and trim pauses.
+"""Earlier per-word espeak concatenation. The job service does not call this.
 
 Word times are the measured durations of the individual synthesized wavs that
-were concatenated. ffmpeg silencedetect is the VAD cross-check. This is not a
-claimed listening session and not Whisper. If espeak-ng is absent, the command
-exits 3 and prints speech_tool_missing.
-
-Meaning-changing flags from footage_cut.py are written and not applied.
+were concatenated. That is not continuous-speech ASR.
 """
 import argparse
 import json

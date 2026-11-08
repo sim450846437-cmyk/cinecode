@@ -331,7 +331,7 @@ my-film/
 
 ## Local job adapter
 
-`scripts/job_service.py` is a localhost queue. It typesets the caller's own locked text into the Quick draft `home_clean_tips_v1` and runs that film's `tools/make.py draft`. Asking it to invent new lines is stored as `blocked`: there is no model host, and typesetting is not treated as AI writing. A drawn-face warp and a green-screen chromakey are separate tools with synthetic inputs. A short espeak-ng take can be pause-trimmed when that program is installed. `profile full` stays blocked, because `make.py final` waits for an independent viewer and a user OK. The process listens on `127.0.0.1` only. A handoff for another machine is `service/deploy/`. Details: `service/README.md`.
+`scripts/job_service.py` is a localhost queue. It typesets the caller's own locked text into the Quick draft `home_clean_tips_v1` and runs that film's `tools/make.py draft`. Asking the motion task to invent lines stays `blocked`: typesetting is not AI writing. A separate copy task writes Chinese from a brief only when a local llama.cpp binary and the Apache-2.0 Qwen2.5-0.5B-Instruct GGUF are configured; otherwise that job is `blocked` too. Photo face swap and person-background replacement run only when the operator has fetched the Apache-2.0 MediaPipe models and supplied photographs. Continuous Mandarin speech is word-timed with faster-whisper, then pause-trimmed. Weights are not packed. `profile full` stays blocked, because `make.py final` waits for an independent viewer and a user OK. The process listens on `127.0.0.1` only. A handoff for another machine is `service/deploy/`. Details: `service/README.md`.
 
 ## Tests
 

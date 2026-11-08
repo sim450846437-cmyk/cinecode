@@ -331,7 +331,7 @@ my-film/
 
 ## 本地任务队列
 
-`scripts/job_service.py` 只在 `127.0.0.1` 上排队。它把调用方锁定的原文排进快速模式草稿 `home_clean_tips_v1`，再运行该片的 `tools/make.py draft`。要求它根据简介新写文案时，任务记为 `blocked`：没有模型宿主，排字也不算 AI 创作。另有两件合成素材工具：绘制人脸的三角变形，以及绿幕抠像。安装了 espeak-ng 时，可以按实测词长做停顿裁切。`profile full` 仍然挡住，因为 `make.py final` 要等独立观众和用户确认。移交给另一台机器的说明在 `service/deploy/`。详见 `service/README.md`。
+`scripts/job_service.py` 只在 `127.0.0.1` 上排队。它把调用方锁定的原文排进快速模式草稿 `home_clean_tips_v1`，再运行该片的 `tools/make.py draft`。在这条成片任务上要求根据简介新写文案，仍然记为 `blocked`：排字不算 AI 创作。另一条文案任务只在本机放好 llama.cpp 和 Apache-2.0 的 Qwen2.5-0.5B-Instruct GGUF 时才写中文；文件不在就记为 `blocked`。照片换脸和人物背景替换，要等操作者自行取得 Apache-2.0 的 MediaPipe 模型并提供照片。连续普通话由 faster-whisper 给出词时间，再按停顿裁切。权重不打进包。`profile full` 仍然挡住，因为 `make.py final` 要等独立观众和用户确认。移交给另一台机器的说明在 `service/deploy/`。详见 `service/README.md`。
 
 ## 测试
 
