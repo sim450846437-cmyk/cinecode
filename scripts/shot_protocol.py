@@ -53,6 +53,36 @@ def assemble(manifest_path, out_path):
         report["error"] = "media_not_imported"
         report["out"] = None
         return report
+    paths = [str(shot["resources"]["video"]) for shot in shot_list(manifest)]
+    if len(paths) != len(set(paths)):
+        report["error"] = "duplicate_source"
+        report["out"] = None
+        return report
+    subtitle = manifest.get("subtitle")
+    if subtitle and len(paths) == 1:
+        if not Path(str(subtitle)).is_file():
+            report["error"] = "subtitle_missing"
+            report["out"] = None
+            return report
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", paths[0], "-i", str(subtitle),
+             "-map", "0:v:0", "-map", "0:a:0", "-map", "1:0",
+             "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text",
+             "-metadata:s:s:0", "language=zho", str(out_path)],
+            text=True, capture_output=True,
+        )
+        report["protocol"] = "import_one_keep_audio_add_soft_subs"
+        report["ffmpeg_returncode"] = proc.returncode
+        report["ffmpeg_stderr"] = proc.stderr[-500:]
+        report["shots_imported"] = 1
+        if proc.returncode != 0 or not Path(out_path).is_file():
+            report["error"] = "ffmpeg_failed"
+            report["out"] = None
+            return report
+        report["out"] = str(out_path)
+        report["imported"] = True
+        report["chain_complete"] = False
+        return report
     listing = Path(out_path).with_suffix(".txt")
     lines = []
     for shot in shot_list(manifest):

@@ -56,6 +56,16 @@ class Schema(unittest.TestCase):
             wrapped_report = shot_protocol.assemble(wrapped, wrapped_out)
             self.assertEqual(wrapped_report["error"], "media_not_imported")
             self.assertFalse(wrapped_out.exists())
+            dup = dict(board)
+            dup["shots"] = [dict(board["shots"][0]), dict(board["shots"][0])]
+            dup["shots"][0]["resources"] = {"image": "not_generated", "video": str(path), "audio": "not_generated"}
+            dup["shots"][1]["resources"] = {"image": "not_generated", "video": str(path), "audio": "not_generated"}
+            dup_path = Path(tmp) / "dup.json"
+            dup_path.write_text(json.dumps(dup), encoding="utf-8")
+            dup_out = Path(tmp) / "dup.mp4"
+            dup_report = shot_protocol.assemble(dup_path, dup_out)
+            self.assertEqual(dup_report["error"], "duplicate_source")
+            self.assertFalse(dup_out.exists())
 
 
 if __name__ == "__main__":

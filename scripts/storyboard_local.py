@@ -15,7 +15,7 @@ SYS = (
     "键为 plot, characters, scenes, shots。"
     "characters 每项含 id, name, description。id 与 name 都用人物姓名，description 写固定外貌。"
     "scenes 每项含 id, description。id 是地点名，description 写固定场景。"
-    "shots 至少四项，index 从 1 递增，start_s 不倒退。"
+    "shots 的镜数按用户要求，不要为了凑数复制镜头。index 从 1 递增，start_s 不倒退。"
     "每镜含 index, scene_id, character_ids, scale, action, dialogue, start_s, resources。"
     "character_ids 和 scene_id 只能引用上面的 id。scale 只能是全景、中景、近景、特写。"
     "resources 的 image, video, audio 都写 not_generated。"
@@ -43,13 +43,13 @@ def llama_long(cli, model, prompt, predict):
     return proc.stdout, meta
 
 
-def attempt(cli, model, prompt):
+def attempt(cli, model, prompt, min_shots):
     started = datetime.now(timezone.utc).isoformat()
     text, meta = llama_long(cli, model, prompt, 700)
     finished = datetime.now(timezone.utc).isoformat()
     raw = text or ""
     data = story_schema.extract_json(story_schema.strip_fence(raw))
-    errors = story_schema.validate_story(data) if data is not None else ["not_json"]
+    errors = story_schema.validate_story(data, min_shots=min_shots) if data is not None else ["not_json"]
     return {
         "started_at": started,
         "finished_at": finished,
@@ -63,11 +63,12 @@ def attempt(cli, model, prompt):
 def main(argv):
     cli = os.environ.get("CINECODE_LLAMA_CLI")
     model = os.environ.get("CINECODE_COPY_MODEL")
-    if len(argv) != 2 or not cli or not model:
-        print(json.dumps({"error": "need brief, out path, CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL"}))
+    if len(argv) not in (2, 3) or not cli or not model:
+        print(json.dumps({"error": "need brief, out path, optional min_shots, CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL"}))
         return 2
     brief, dest = argv[0], Path(argv[1])
-    first = attempt(cli, model, brief)
+    min_shots = int(argv[2]) if len(argv) == 3 else 4
+    first = attempt(cli, model, brief, min_shots)
     revisions = []
     current = first
     if first["errors"]:
@@ -77,7 +78,7 @@ def main(argv):
             + "、".join(first["errors"][:12])
             + "。请只重新输出完整 JSON，不要沿用空白模板。"
         )
-        second = attempt(cli, model, repair)
+        second = attempt(cli, model, repair, min_shots)
         revisions.append({
             "reason": first["errors"],
             "raw_stdout": second["raw_stdout"],

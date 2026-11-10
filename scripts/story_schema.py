@@ -28,7 +28,7 @@ def extract_json(text):
     return None
 
 
-def validate_story(data):
+def validate_story(data, min_shots=4):
     """Character ids, scene ids, shot order, and missing media. Not a taste score."""
     errors = []
     if not isinstance(data, dict):
@@ -45,8 +45,8 @@ def validate_story(data):
     if not isinstance(scenes, list) or not scenes:
         errors.append("scenes_missing")
         scenes = []
-    if not isinstance(shots, list) or len(shots) < 4:
-        errors.append("shots_need_four")
+    if not isinstance(shots, list) or len(shots) < min_shots:
+        errors.append("shots_need_" + str(min_shots))
         shots = shots if isinstance(shots, list) else []
     char_ids = []
     for item in characters:
