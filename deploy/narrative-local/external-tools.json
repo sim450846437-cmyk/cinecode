@@ -1,0 +1,16 @@
+{
+  "inside_this_package": ["qwen_text_storyboard", "dfg_selftest", "import_one_video_soft_subs"],
+  "not_inside_this_package": [
+    {
+      "name": "GenerateImage",
+      "where": "first-party external tool orchestration",
+      "cinecode_api": false
+    },
+    {
+      "name": "GenerateVideo",
+      "where": "first-party external tool orchestration",
+      "cinecode_api": false
+    }
+  ],
+  "automatic_full_chain": false
+}

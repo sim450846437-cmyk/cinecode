@@ -9,7 +9,6 @@
   "schema": "scripts/story_schema.py",
   "import": "scripts/shot_protocol.py",
   "gauges": "vendor/dfg-gauges",
-  "procedural_mouth": "vendor/character-lipsync",
-  "weights_gitignore": [".local-models/", ".local-tools/"],
+  "weights_not_in_zip": [".local-models/", ".local-tools/"],
   "note": "Local text weights are a gitignored Qwen file, not a video model install. First-party image and video calls stay outside this package. One imported file can take soft subtitles with audio copied. The same file must not be listed twice."
 }
