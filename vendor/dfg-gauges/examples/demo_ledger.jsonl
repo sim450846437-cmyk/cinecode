@@ -1,0 +1,7 @@
+{"ts": "2026-11-01T10:00:01+08:00", "task": "outline", "provider": "qwen", "model": "qwen-max", "ok": true, "latency_ms": 1840}
+{"ts": "2026-11-01T10:00:04+08:00", "task": "chapter", "provider": "qwen", "model": "qwen-max", "ok": true, "latency_ms": 4210}
+{"ts": "2026-11-01T10:01:00+08:00", "task": "outline", "provider": "moonshot", "model": "kimi-k2", "ok": false, "latency_ms": 0, "error": "HTTP 404 model_not_found"}
+{"ts": "2026-11-01T10:01:02+08:00", "task": "outline", "provider": "moonshot", "model": "kimi-k2", "ok": false, "latency_ms": 0, "error": "HTTP 404 model_not_found"}
+{"ts": "2026-11-01T10:01:04+08:00", "task": "outline", "provider": "moonshot", "model": "kimi-k2", "ok": false, "latency_ms": 0, "error": "HTTP 404 model_not_found"}
+{"ts": "2026-11-01T10:02:00+08:00", "task": "chapter", "provider": "deepseek", "model": "deepseek-chat", "ok": false, "latency_ms": 900, "error": "timeout"}
+{"ts": "2026-11-01T10:02:11+08:00", "task": "chapter", "provider": "deepseek", "model": "deepseek-chat", "ok": true, "latency_ms": 3800}

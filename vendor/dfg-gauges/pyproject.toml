@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dfg-gauges"
+version = "0.1.0"
+description = "Four gauges for AI content pipelines: prompt adherence, LLM channel liveness, argparse reconciliation, and character consistency (CLIP/ArcFace)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "DreamForge" }]
+
+# Keywords land in the PyPI page and in the package metadata that search
+# engines index. Keep them specific: "ai" and "video" alone match everything.
+keywords = [
+    "ai-video",
+    "text-to-video",
+    "character-consistency",
+    "prompt-adherence",
+    "consistency-check",
+    "clip",
+    "arcface",
+    "comfyui",
+    "stable-diffusion",
+    "image-similarity",
+    "prompt-engineering",
+    "llm-router",
+    "pipeline",
+    "preflight",
+    "cli",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Natural Language :: Chinese (Simplified)",
+    "Natural Language :: English",
+]
+dependencies = []
+
+[project.optional-dependencies]
+clip = ["torch", "transformers", "pillow", "numpy"]
+face = ["insightface", "onnxruntime", "opencv-python", "numpy"]
+dev = ["pytest"]
+
+[project.scripts]
+dfg = "dfg.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Bingo1314/dfg-gauges"
+Repository = "https://github.com/Bingo1314/dfg-gauges"
+Issues = "https://github.com/Bingo1314/dfg-gauges/issues"
+Changelog = "https://github.com/Bingo1314/dfg-gauges/releases"
+
+[tool.setuptools]
+packages = ["dfg"]

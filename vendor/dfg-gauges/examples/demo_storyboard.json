@@ -1,0 +1,24 @@
+{
+  "title": "雨夜桥头",
+  "logline": "雨夜，她撑着油纸伞站在木桥上，等一个不会来的人。",
+  "scenes": [
+    {
+      "shot": 1,
+      "visual": "rainy night, wet wooden bridge, a woman holding an oil-paper umbrella",
+      "action": "she looks down at the river, unmoving",
+      "dialogue": "（无台词）"
+    },
+    {
+      "shot": 2,
+      "visual": "close-up on the umbrella edge, raindrops sliding off",
+      "action": "her hand tightens around the handle",
+      "dialogue": "他说过会来。"
+    },
+    {
+      "shot": 3,
+      "visual": "the bridge from a distance, one small figure under the umbrella",
+      "action": "she turns and walks away slowly",
+      "dialogue": "（无台词）"
+    }
+  ]
+}

@@ -14,6 +14,10 @@ frames/
 renders/
 research/.cache/
 
+# Restored local weights and binaries. The lock file records URLs and hashes.
+.local-models/
+.local-tools/
+
 # Secrets
 .env
 .env.*

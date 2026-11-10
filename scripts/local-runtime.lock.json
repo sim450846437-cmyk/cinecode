@@ -1,0 +1,38 @@
+{
+  "qwen2.5-3b-instruct-q4_k_m.gguf": {
+    "url": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+    "sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d",
+    "licence": "Apache-2.0",
+    "bytes": 2104932768,
+    "age": "existing model, not a 2026-10-26..2026-11-10 publication",
+    "path": ".local-models/qwen2.5-3b-instruct-q4_k_m.gguf"
+  },
+  "llama-cli": {
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12195/llama-b12195-bin-ubuntu-x64.tar.gz",
+    "release": "b12195",
+    "binary_sha256": "d6cc36e5fdc2eedd6e052dc7eb1e29d21065331e37e31f57ab2ca4720635dba2",
+    "age": "existing runtime, not a window-new tool",
+    "path": ".local-tools/llama-b12195/llama-cli"
+  },
+  "dfg-gauges": {
+    "url": "https://github.com/Bingo1314/dfg-gauges",
+    "commit": "ba04993cf3fca3fc8403457165fded472616fcab",
+    "created_at": "2026-11-01T13:20:51Z",
+    "licence": "MIT",
+    "role": "evaluation, not generation",
+    "path": "vendor/dfg-gauges"
+  },
+  "character-lipsync": {
+    "url": "https://github.com/dkonstantin/character-lipsync",
+    "commit": "abdcbda875256749bbc14e895b521e145a05d921",
+    "created_at": "2026-11-09T11:26:09Z",
+    "licence": "MIT",
+    "role": "procedural mouth warp, not dialogue generation",
+    "pip": {
+      "numpy": "2.5.4",
+      "Pillow": "13.0.0",
+      "opencv-python-headless": "5.0.0.93"
+    },
+    "path": "vendor/character-lipsync"
+  }
+}
