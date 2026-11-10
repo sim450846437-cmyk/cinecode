@@ -1,0 +1,15 @@
+{
+  "name": "narrative-local",
+  "chain_complete": false,
+  "paid_generation": false,
+  "host_installed": false,
+  "lock": "scripts/local-runtime.lock.json",
+  "diagnose": "python3 scripts/narrative_diagnose.py",
+  "storyboard": "scripts/storyboard_local.py",
+  "schema": "scripts/story_schema.py",
+  "import": "scripts/shot_protocol.py",
+  "gauges": "vendor/dfg-gauges",
+  "procedural_mouth": "vendor/character-lipsync",
+  "weights_gitignore": [".local-models/", ".local-tools/"],
+  "note": "Protocol and local text inference only. Image and dialogue video stay not_generated until a real file is imported."
+}
