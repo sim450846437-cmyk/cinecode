@@ -1,0 +1,14 @@
+{
+  "name": "narrative-local",
+  "chain_complete": false,
+  "paid_generation": false,
+  "host_installed": false,
+  "lock": "scripts/local-runtime.lock.json",
+  "diagnose": "python3 scripts/narrative_diagnose.py",
+  "storyboard": "scripts/storyboard_local.py",
+  "schema": "scripts/story_schema.py",
+  "import": "scripts/shot_protocol.py",
+  "gauges": "vendor/dfg-gauges",
+  "weights_not_in_zip": [".local-models/", ".local-tools/"],
+  "note": "Local text weights are a gitignored Qwen file, not a video model install. First-party image and video calls stay outside this package. An official storyboard without a higher named count still requires four distinct shots and fails with shots_need_4 otherwise. scripts/story_schema.py validates the examples offline and does not call a model. Identical dialogue and actions that match after names and place words are removed fail. One imported file keeps its source mov_text cues. The same file must not be listed twice. qualified stays false. Exit 0 on the four-distinct example is not a media-quality pass."
+}

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Print what this machine actually has. It does not change the machine.
+
+The Debian 13 numbers in the deployment notes are the intended host, not a
+measurement of the machine that packed this bundle.
+"""
+import json
+import os
+import shutil
+import subprocess
+
+
+def first_line(cmd):
+    if not shutil.which(cmd[0]):
+        return None
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (proc.stdout or "").strip().splitlines()[:2]
+
+
+def chrome():
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        path = shutil.which(name)
+        if path:
+            return path, first_line([path, "--version"])
+    return None, None
+
+
+def mem_kib(name):
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith(name + ":"):
+                    return int(line.split()[1])
+    except OSError:
+        return None
+    return None
+
+
+pid1 = ""
+try:
+    pid1 = open("/proc/1/comm", encoding="utf-8", errors="replace").read().strip()
+except OSError:
+    pid1 = None
+
+report = {
+    "python3": first_line(["python3", "--version"]),
+    "node": first_line(["node", "-v"]),
+    "ffmpeg": first_line(["ffmpeg", "-version"]),
+    "ffprobe": bool(shutil.which("ffprobe")),
+    "chrome_path": chrome()[0],
+    "chrome_version": chrome()[1],
+    "espeak_ng": bool(shutil.which("espeak-ng")),
+    "pid1": pid1,
+    "systemctl": bool(shutil.which("systemctl")),
+    "pm2": bool(shutil.which("pm2")),
+    "supervisord": bool(shutil.which("supervisord")),
+    "docker": bool(shutil.which("docker")),
+    "font_droid": os.path.isfile("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"),
+    "mem_available_kib": mem_kib("MemAvailable"),
+    "swap_total_kib": mem_kib("SwapTotal"),
+    "cpu_count": os.cpu_count(),
+    "serial_limit": "one heavy job and one llama thread; do not assume a larger GGUF fits",
+    "memory_rule": "loader refuses a GGUF when MemAvailable is below twice the file size",
+    "target_assumption_not_a_measurement": {
+        "os": "Debian 13 x86_64",
+        "python": "3.13.5",
+        "node": "24.22.1",
+        "ffmpeg": "7.1.5",
+        "chrome": "156",
+        "disk_free": "about 63GB",
+        "pid1": "tini",
+        "systemctl": "offline",
+        "pm2": "not verified",
+        "supervisord": "not verified",
+    },
+}
+print(json.dumps(report, ensure_ascii=False, indent=2))

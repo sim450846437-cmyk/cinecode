@@ -1,0 +1,32 @@
+{
+  "template_id": "stationery_tidy_v1",
+  "policy_id": "preauthorized_motion_v1",
+  "title": "文具归位",
+  "generation": "deterministic_template",
+  "language": "zh-CN",
+  "duration_s": 18,
+  "fps": 24,
+  "full": {"width": 1080, "height": 1920},
+  "draft": {"width": 540, "height": 960},
+  "supported_profile": "draft",
+  "workers": 1,
+  "locked_script": "文具入盒\n贴上标签\n分类摆好\n定期查看",
+  "topic": {
+    "label": "stationery tidy",
+    "need_any": ["文具", "铅笔", "橡皮", "笔", "收纳", "尺子", "便签", "标签"],
+    "forbid": ["灶", "抹布", "洗碗", "水渍", "清洁液", "漂白", "台面"]
+  },
+  "cannot_show": ["洒落", "掉在地上", "圆规", "剪刀", "胶水", "订书机"],
+  "can_show": ["铅笔", "橡皮", "尺子", "尺", "笔", "标签", "便签", "盒", "筒", "文具", "收纳", "整理", "摆", "入", "查看"],
+  "font": {
+    "dest": "fonts/DroidSansFallbackFull.ttf",
+    "source": "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "family": "Droid Sans Fallback",
+    "licence": "Apache-2.0",
+    "licence_url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "author": "Google Corp. / Steve Matteson, Ascender Corp.",
+    "source_url": "https://android.googlesource.com/platform/frameworks/base/",
+    "notes": "System font copied into the job workspace only. Not committed."
+  },
+  "sound_audit": "sound-audit.md"
+}

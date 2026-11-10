@@ -1,0 +1,9 @@
+name: dfg-gauges
+upstream: https://github.com/Bingo1314/dfg-gauges
+commit: ba04993cf3fca3fc8403457165fded472616fcab
+commit_time: 2026-11-01T21:27:21+08:00
+github_created_at: 2026-11-01T13:20:51Z
+license: MIT
+window: created inside 2026-10-26..2026-11-10
+kind: evaluation gauges, not a generator
+core_deps: Python standard library only

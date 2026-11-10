@@ -329,6 +329,10 @@ my-film/
 
 **Offline?** Rendering, mixing and the checks work offline, and so does the Quick mode starter (Canvas 2D, Web Audio); searches need the network (references, music, the first font and style downloads, which are then cached). The three.js scene needs the network once for its libraries (or a local copy, see `references/looks.md` §6); `starter/index.html` needs nothing.
 
+## Local job adapter
+
+`scripts/job_service.py` is a localhost queue. It typesets locked text into the Quick draft `home_clean_tips_v1` and runs that film's `tools/make.py draft` with one worker. `script.mode generate` calls a local allowlisted Qwen GGUF when `CINECODE_LLAMA_CLI` and `CINECODE_COPY_MODEL` are set, screens the lines, and typesets only lines that pass. The template scenes stay fixed. Without those files the job stays blocked, and typesetting is not AI writing. The loader refuses a model file larger than half of available memory. Full head plus hair stays candidate_unverified and is not run. Person segmentation needs a moving-person video, and a still pan is not that task. Speech timing reads an uploaded recording: the job field is `upload_id`, and only the bot that uploaded it can submit, run, or download the result. espeak-ng is not required. On-screen lines are measured and wrapped on two-character boundaries inside a safe area. A locked line the picture cannot act is refused and not rendered. A request to pour cleaner back is refused before the model runs. `constraints` names forbidden substances; 不用 and 不使用 parse to that same rule, and an unknown negation stays blocked. A generate success reports `model_host` `local_file`. Weights are not packed. `profile full` stays blocked. Details: `service/README.md`.
+
 ## Tests
 
 From the kit folder run `python3 -m unittest discover -s tests`; put `CINECODE_BROWSER_TESTS=1` in front for the real Chrome and ffmpeg tests. The suite also runs on every push on Windows (with and without Git and bash) and on Ubuntu. If something goes wrong, report it on GitHub.

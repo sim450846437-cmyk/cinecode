@@ -329,6 +329,10 @@ my-film/
 
 **能离线使用吗？** 渲染、混音和各项检查都可以离线进行，快速模式起始模板（Canvas 2D、Web Audio）也一样；搜索需要联网（参考、音乐、首次下载字体和风格，之后会被缓存）。three.js 场景需要联网一次来获取库（或使用本地副本，见 `references/looks.md` §6）；`starter/index.html` 什么都不需要。
 
+## 本地任务队列
+
+`scripts/job_service.py` 只在 `127.0.0.1` 上排队。锁定原文排进快速模式草稿 `home_clean_tips_v1`，再用一个工人运行 `tools/make.py draft`。`script.mode generate` 在放好 `CINECODE_LLAMA_CLI` 和 `CINECODE_COPY_MODEL` 时调用本地 Qwen GGUF，过一遍安全与重复筛查，只把通过的句子排进去。清洁模板只收清洁文案，文具模板只收文具文案。画面上的句子按字号测量后换行，放进安全区，缺的结尾行直接省略。文件不在就保持 `blocked`。可用内存不到模型文件两倍时，加载器不启动模型。完整换头没有接入。人物分割需要运动视频，静帧平移不是这项。口播任务的字段是 `upload_id`，只有上传它的机器人能提交、执行和下载。不依赖 espeak-ng。画面做不到的锁定句不会出片。要求把清洁剂倒回去的请求在模型运行前拒绝。`constraints` 写出禁用物质；不用和不使用进同一条规则，认不出的否定保持挡住。成功生成时顶层 `model_host` 为 `local_file`。权重不打进包。`profile full` 仍然挡住。详见 `service/README.md`。
+
 ## 测试
 
 在工具包文件夹中运行 `python3 -m unittest discover -s tests`；在前面加上 `CINECODE_BROWSER_TESTS=1` 即可运行真实的 Chrome 和 ffmpeg 测试。测试套件还会在每次推送时于 Windows（有和没有 Git 与 bash 两种情况）和 Ubuntu 上运行。如果遇到问题，请在 GitHub 上反馈。

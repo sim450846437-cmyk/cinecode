@@ -1,0 +1,20 @@
+#!/bin/sh
+# Ask the supervisor to exit. The next start requeues a job whose worker died.
+set -eu
+ROOT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --root) ROOT="$2"; shift 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$ROOT" ] || [ ! -f "$ROOT/supervise.pid" ]; then
+  echo "supervisor pid file is missing" >&2
+  exit 1
+fi
+touch "$ROOT/stop"
+kill "$(cat "$ROOT/supervise.pid")" 2>/dev/null || true
+if [ -f "$ROOT/child.pid" ]; then
+  kill "$(cat "$ROOT/child.pid")" 2>/dev/null || true
+fi
+echo stopped

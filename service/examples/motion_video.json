@@ -1,0 +1,22 @@
+{
+  "task_type": "motion_video",
+  "template_id": "home_clean_tips_v1",
+  "asset_ids": [],
+  "brief": "preauthorized 18s vertical home-cleaning motion graphic",
+  "script": {
+    "text": "先清台面\n喷一点\n顺纹擦开\n热水过盘\n三步做完",
+    "mode": "locked"
+  },
+  "replacement_target": null,
+  "output": {
+    "profile": "draft",
+    "width": 540,
+    "height": 960,
+    "duration_s": 18,
+    "fps": 24,
+    "language": "zh-CN"
+  },
+  "timeout_s": 900,
+  "policy_id": "preauthorized_motion_v1",
+  "idempotency_key": "home-clean-draft-01"
+}

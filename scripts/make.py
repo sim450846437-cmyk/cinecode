@@ -1249,7 +1249,7 @@ def report_lines(report, bounds):
         at = re.findall(r"(\d\d:\d\d)\.00-\d\d:\d\d\.00 repeats (\d\d:\d\d)", text)
         issues.append(f"repeated pictures {rep[2]} s" + (": " + ", ".join(f"{x} = {y}" for x, y in at[:3]) if at else ""))
     still, windows = stats.get("action", (0, 0))
-    if windows and still / windows > 0.45:          # calm films sit near 30 %; a frozen one passes half
+    if still:
         issues.append(f"TOO STILL: {still} of {windows} windows show nothing acting")
     if rep and int(rep[3]) and int(rep[2]) / int(rep[3]) > 0.1:
         issues.append(f"TOO REPETITIVE: {rep[2]} of {rep[3]} s repeat earlier pictures")
@@ -1368,9 +1368,14 @@ def show(path):
 
 
 def delivers(hook, master_ok, rc, avoff, weak, show_anyway):
-    """A render is delivered when its hook, master and checks pass and its sound and picture start together; the soft
-    holds (stillness, repeats, sound and look flags) give way after one fix pass, a broken file never does."""
-    return hook == "PASS" and master_ok and rc == 0 and not avoff and not (weak and not show_anyway)
+    """A render is delivered when its hook, master and checks pass and its sound and picture start together.
+
+    Stillness and repeated pictures stay failures. --force and a previous hold do not waive them.
+    The file in renders/ remains a diagnostic and is not copied to the delivered name.
+    """
+    hard = [item for item in weak if item in ("TOO STILL", "TOO REPETITIVE")]
+    soft = [item for item in weak if item not in ("TOO STILL", "TOO REPETITIVE")]
+    return hook == "PASS" and master_ok and rc == 0 and not avoff and not hard and not (soft and not show_anyway)
 
 
 def red_items(text):
@@ -1483,8 +1488,7 @@ def render(a, kind):
                 f"now (its path, the poster, one question) and wait; polish waits for their notes, saved in notes/. "
                 f"--force only when the user asked for another draft without notes"], 2)
     viewer = viewer_report(a) if kind == "final" and not a.variant and not a.size else ""
-    if gate.get("held"):
-        a.show_anyway = True                  # one fix pass was done after a hold: this one is shown, with what remains
+    # A held draft is not a pass. The next render still has to clear stillness and repeats.
     words = words_line()
     state = state_text()
     film = a.film
@@ -1595,7 +1599,7 @@ def render(a, kind):
         why = ", ".join([x for x, bad in (("the hook", hook != "PASS"), ("the master", not master_ok),
                                            ("the checks", rc != 0), ("sound and picture out of step", bool(avoff)),
                                            ("the music was never chosen", bool(unchosen)))
-                         if bad] + [w.lower() for w in weak if not a.show_anyway])
+                         if bad] + [w.lower() for w in weak if w in ("TOO STILL", "TOO REPETITIVE") or not a.show_anyway])
         extra.append(f"NOT DELIVERED ({why}): " + (f"{deliver.name} still holds the last passing render" if deliver.exists() else f"no {kind} has been delivered yet") + f"; this one is {rel(out)}"
                      + ("; one fix pass on the flagged windows (an action in each still one, a new picture for each "
                         "repeat, scene lengths that vary), then make.py draft again: that one is shown, with what remains" if weak else ""))

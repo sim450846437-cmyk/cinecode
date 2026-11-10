@@ -329,6 +329,10 @@ filmim/
 
 **Çevrimdışı?** Render, miks ve kontroller çevrimdışı çalışır; Hızlı mod başlangıç dosyası da öyle (Canvas 2D, Web Audio). Aramalar ağ ister (referanslar, müzik, ilk font ve stil indirmeleri; sonra önbellekte kalır). three.js sahnesi kütüphaneleri için bir kez ağa ihtiyaç duyar (ya da yerel bir kopya, bkz. `references/looks.md` §6); `starter/index.html` hiçbir şeye ihtiyaç duymaz.
 
+## Yerel iş kuyruğu
+
+`scripts/job_service.py` yalnızca `127.0.0.1` üzerinde dinler. Kilitli metni Hızlı taslak `home_clean_tips_v1` içine dizer ve `tools/make.py draft` komutunu tek işçiyle çalıştırır. `script.mode generate`, `CINECODE_LLAMA_CLI` ve `CINECODE_COPY_MODEL` ayarlıysa yerel Qwen GGUF çağırır, satırları tarar ve yalnız geçen satırları dizer. Temizlik şablonu yalnızca temizlik metnini, kırtasiye şablonu yalnızca kırtasiye metnini alır. Ekrandaki satırlar ölçülür ve güvenli alana sarılır. Dosyalar yoksa iş `blocked` kalır. Yükleyici, boş bellek model dosyasının iki katından azsa modeli başlatmaz. Tam kafa değiştirme sunulmaz. Kişi ayrımı hareketli bir video ister. Konuşma işinin alanı `upload_id` dir ve yükleme sahibinden başkası kullanamaz. espeak-ng gerekmez. Şablonun gösteremediği kilitli satır filme girmez. Temizleyiciyi geri dökmeyi isteyen istek model çalışmadan reddedilir. `constraints` yasak maddeyi adlandırır; bilinmeyen bir olumsuzluk güvenli sayılmaz. Ağırlıklar pakete girmez. `profile full` bloklu kalır. Ayrıntı: `service/README.md`.
+
 ## Testler
 
 Kit klasöründe `python3 -m unittest discover -s tests` çalıştır; gerçek Chrome ve ffmpeg testleri için başına `CINECODE_BROWSER_TESTS=1` ekle. Test takımı her gönderimde Windows'ta (Git ve bash ile de, onlarsız da) ve Ubuntu'da da çalışır. Bir sorun görürsen GitHub'da bildir.

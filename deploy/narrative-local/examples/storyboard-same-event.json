@@ -1,0 +1,52 @@
+{
+ "plot": "四条字面不同、事件相同的等车镜头。",
+ "characters": [
+  {"id": "周宁", "name": "周宁", "description": "三十岁短发，灰色外套。"},
+  {"id": "阿禾", "name": "阿禾", "description": "二十五岁长发，深蓝围巾。"}
+ ],
+ "scenes": [
+  {"id": "夜班车站", "description": "空荡站台，一盏黄灯。"}
+ ],
+ "shots": [
+  {
+   "index": 1,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "全景",
+   "action": "周宁和阿禾在站台中央等待末班车。",
+   "dialogue": "谢谢我赶上了",
+   "start_s": 0,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 2,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "中景",
+   "action": "周宁和阿禾在站台东侧等待末班车。",
+   "dialogue": "谢谢我赶上了",
+   "start_s": 10,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 3,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "近景",
+   "action": "周宁和阿禾在候车室门口等待末班车。",
+   "dialogue": "谢谢我赶上了",
+   "start_s": 20,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 4,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "特写",
+   "action": "周宁和阿禾在站台西侧等待末班车。",
+   "dialogue": "谢谢我赶上了",
+   "start_s": 30,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  }
+ ]
+}

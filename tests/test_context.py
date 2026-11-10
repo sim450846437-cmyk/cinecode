@@ -2495,7 +2495,8 @@ console.log(JSON.stringify({ ahead, farScale: far[2], nearScale: near[2], behind
             self.assertIn("kept by the user", make.viewer_report(argparse.Namespace(film="film.html", force=True)))
 
     def test_a_broken_file_is_never_shown_anyway(self):
-        self.assertTrue(make.delivers("PASS", True, 0, "", ["TOO STILL"], True))
+        self.assertFalse(make.delivers("PASS", True, 0, "", ["TOO STILL"], True))
+        self.assertFalse(make.delivers("PASS", True, 0, "", ["TOO REPETITIVE"], True))
         self.assertFalse(make.delivers("PASS", True, 0, "", ["TOO STILL"], False))
         self.assertFalse(make.delivers("PASS", True, 0, "AV OFFSET: +0.176 s", [], True))
         self.assertFalse(make.delivers("PASS", True, 0, "AV OFFSET: +0.176 s", ["AV OFFSET"], True))

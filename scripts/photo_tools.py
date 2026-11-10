@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""Photo face swap and person-video background replacement.
+
+Landmarks: MediaPipe Face Landmarker (Apache-2.0 model, fetched from Google, not packed).
+Person mask: MediaPipe selfie segmenter (Apache-2.0), same terms.
+Face pixels are warped with Delaunay triangles and OpenCV seamlessClone.
+The source frames are photographs, not drawings and not a green screen.
+
+Set CINECODE_FACE_MODEL and CINECODE_SEG_MODEL. Exit 3 when a model file is absent.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import cv2
+import mediapipe as mp
+import numpy as np
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+
+# The operator supplies photographs. This script does not download people.
+# A usable pair is two CC0 synthetic faces (not real persons), for example
+# https://commons.wikimedia.org/wiki/File:2023-01_ai_image_of_man_02.png
+# and https://commons.wikimedia.org/wiki/File:GAN_Mensch_StyleGAN2.png
+
+
+def local_photo(name):
+    path = os.environ.get(name, "")
+    if not path or not os.path.isfile(path):
+        return None
+    return Path(path)
+
+
+def landmarks(path, model):
+    options = vision.FaceLandmarkerOptions(
+        base_options=python.BaseOptions(model_asset_path=model), num_faces=1)
+    landmarker = vision.FaceLandmarker.create_from_options(options)
+    image = mp.Image.create_from_file(str(path))
+    result = landmarker.detect(image)
+    if not result.face_landmarks:
+        return None
+    h, w = image.height, image.width
+    return np.array([[p.x * w, p.y * h] for p in result.face_landmarks[0]], dtype=np.float32), (w, h)
+
+
+def triangles(pts, shape):
+    w, h = shape
+    rect = (0, 0, w, h)
+    subdiv = cv2.Subdiv2D(rect)
+    for p in pts:
+        px, py = float(np.clip(p[0], 1, w - 2)), float(np.clip(p[1], 1, h - 2))
+        try:
+            subdiv.insert((px, py))
+        except cv2.error:
+            continue
+    found = []
+    for tri in subdiv.getTriangleList():
+        corners = [(tri[0], tri[1]), (tri[2], tri[3]), (tri[4], tri[5])]
+        idx = []
+        for corner in corners:
+            dist = np.sum((pts - corner) ** 2, axis=1)
+            i = int(np.argmin(dist))
+            if dist[i] > 4:
+                idx = []
+                break
+            idx.append(i)
+        if len(idx) == 3 and len(set(idx)) == 3:
+            found.append(tuple(idx))
+    return found
+
+
+def warp(src, dst_shape, src_pts, dst_pts, tris):
+    out = np.zeros((dst_shape[1], dst_shape[0], 3), np.uint8)
+    for a, b, c in tris:
+        s = np.float32([src_pts[a], src_pts[b], src_pts[c]])
+        d = np.float32([dst_pts[a], dst_pts[b], dst_pts[c]])
+        rect = cv2.boundingRect(d)
+        if rect[2] < 1 or rect[3] < 1:
+            continue
+        s_rect = s - [rect[0], rect[1]]
+        d_rect = d - [rect[0], rect[1]]
+        matrix = cv2.getAffineTransform(s, d)
+        patch = cv2.warpAffine(src, matrix, (dst_shape[0], dst_shape[1]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+        mask = np.zeros((dst_shape[1], dst_shape[0]), np.uint8)
+        cv2.fillConvexPoly(mask, np.int32(d), 255)
+        out[mask == 255] = patch[mask == 255]
+    return out
+
+
+def face_swap(out_dir, model):
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = [local_photo("CINECODE_FACE_A"), local_photo("CINECODE_FACE_B")]
+    if any(path is None for path in paths):
+        print(json.dumps({"error": "photos_missing", "env": ["CINECODE_FACE_A", "CINECODE_FACE_B"]}))
+        return 3
+    found = []
+    images = []
+    for path in paths:
+        hit = landmarks(path, model)
+        if hit is None:
+            print(json.dumps({"error": "no_face", "file": path.name}))
+            return 1
+        pts, shape = hit
+        images.append(cv2.imread(str(path)))
+        step = max(1, len(pts) // 40)
+        found.append((pts[::step], shape))
+    src_pts, src_shape = found[1]
+    dst_pts, dst_shape = found[0]
+    n = min(len(src_pts), len(dst_pts))
+    src_pts, dst_pts = src_pts[:n], dst_pts[:n]
+    tris = triangles(dst_pts, dst_shape)
+    if len(tris) < 8:
+        print(json.dumps({"error": "too_few_triangles", "n": len(tris)}))
+        return 1
+    swapped = warp(images[1], dst_shape, src_pts, dst_pts, tris)
+    hull = cv2.convexHull(dst_pts.astype(np.int32))
+    mask = np.zeros(images[0].shape[:2], np.uint8)
+    cv2.fillConvexPoly(mask, hull, 255)
+    center = tuple(np.mean(dst_pts, axis=0).astype(int))
+    blended = cv2.seamlessClone(swapped, images[0], mask, center, cv2.NORMAL_CLONE)
+    cv2.imwrite(str(out / "swap-before-a.jpg"), images[0])
+    cv2.imwrite(str(out / "swap-before-b.jpg"), images[1])
+    cv2.imwrite(str(out / "swap-after.jpg"), blended)
+    # The hull interior must change; a corner far from the face should stay close.
+    changed = float(np.mean(np.abs(blended.astype(int) - images[0].astype(int))[mask == 255]))
+    h, w = images[0].shape[:2]
+    corner = float(np.mean(np.abs(blended[:20, :20].astype(int) - images[0][:20, :20].astype(int))))
+    report = {
+        "detector": "MediaPipe Face Landmarker",
+        "model_licence": "Apache-2.0",
+        "model_source": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        "points_a": int(len(found[0][0])),
+        "triangles": len(tris),
+        "mean_abs_change_inside_face": round(changed, 2),
+        "mean_abs_change_corner": round(corner, 2),
+        "sources": [str(path) for path in paths],
+        "source_note": os.environ.get("CINECODE_FACE_NOTE", "operator-supplied photographs; licence is not declared by this script"),
+        "inswapper": "not used",
+        "face_shape_and_hair_complete": False,
+        "hairstyle_coverage": "incomplete",
+        "limit": "Interior triangle warp of the face. Hair and the face outline are not replaced.",
+    }
+    (out / "swap-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if changed < 2:
+        print(json.dumps({"error": "swap_did_not_change_face", **report}))
+        return 1
+    print(json.dumps({k: report[k] for k in ("points_a", "triangles", "mean_abs_change_inside_face", "mean_abs_change_corner")}))
+    return 0
+
+
+def segment_video(out_dir, seg_model):
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    src = local_photo("CINECODE_FACE_A")
+    if src is None:
+        print(json.dumps({"error": "photos_missing", "env": "CINECODE_FACE_A"}))
+        return 3
+    image = cv2.imread(str(src))
+    h, w = image.shape[:2]
+    options = vision.ImageSegmenterOptions(
+        base_options=python.BaseOptions(model_asset_path=seg_model),
+        output_confidence_masks=True)
+    segmenter = vision.ImageSegmenter.create_from_options(options)
+    frames, masks = [], []
+    for i in range(16):
+        M = np.float32([[1, 0, i * 2], [0, 1, i]])
+        frame = cv2.warpAffine(image, M, (w, h), borderMode=cv2.BORDER_REFLECT)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = segmenter.segment(mp_image)
+        conf = np.squeeze(result.confidence_masks[0].numpy_view())
+        person = np.where(conf >= 0.5, 255, 0).astype(np.uint8)
+        if person.shape[:2] != frame.shape[:2]:
+            person = cv2.resize(person, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
+        bg = np.zeros_like(frame)
+        bg[:, :] = (188, 214, 232)
+        hard = np.where(person[:, :, None] == 0, bg, frame)
+        soft = _feather_cutout(frame, person)
+        if i == 0:
+            cv2.imwrite(str(out / "segment-hard-edge.jpg"), hard)
+        frames.append(soft)
+        masks.append(person)
+    raw = out / "frames.raw"
+    with raw.open("wb") as handle:
+        for frame in frames:
+            handle.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).tobytes())
+    run = subprocess.run
+    proc = run(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
+                "-r", "8", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                str(out / "segment-after.mp4")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw.unlink(missing_ok=True)
+    if proc.returncode != 0:
+        sys.exit(proc.stderr.decode()[-1500:])
+    cv2.imwrite(str(out / "segment-before.jpg"), image)
+    cv2.imwrite(str(out / "segment-mask.jpg"), masks[0])
+    cv2.imwrite(str(out / "segment-after.jpg"), frames[0])
+    share = float(np.mean(masks[0] > 0))
+    report = {
+        "segmenter": "MediaPipe selfie segmenter",
+        "model_licence": "Apache-2.0",
+        "model_source": "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+        "frames": 16,
+        "person_pixel_share": round(share, 3),
+        "green_screen": False,
+        "motion": "16-frame translation of a still photograph",
+        "still_pan": True,
+        "dynamic_person_video": False,
+        "edge": "erode by about 1/70 of the short side, then gaussian feather; hard mask kept as segment-hard-edge.jpg",
+        "limit": "static portrait pan test, not a filmed scene and not a dynamic background replacement",
+        "source": str(src),
+        "source_note": os.environ.get("CINECODE_FACE_NOTE", ""),
+    }
+    (out / "segment-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not 0.05 < share < 0.9:
+        print(json.dumps({"error": "mask_not_a_person", **report}))
+        return 1
+    print(json.dumps({"person_pixel_share": report["person_pixel_share"], "frames": 16}))
+    return 0
+
+
+def _moving_background(shape, index, total):
+    """A background that changes every frame. It is not a pan of the person still."""
+    height, width = shape[:2]
+    phase = index / max(total, 1)
+    yy, xx = np.mgrid[0:height, 0:width]
+    band = ((xx + int(phase * width)) // max(24, width // 16)) % 2
+    wave = np.sin((yy / 22.0) + phase * 6.28318)
+    blue = np.clip(36 + 90 * band + 28 * wave, 0, 255)
+    green = np.clip(70 + 50 * (1 - band) + 40 * np.sin(phase * 6.28318), 0, 255)
+    red = np.clip(150 + 55 * wave, 0, 255)
+    return np.dstack([blue, green, red]).astype(np.uint8)
+
+
+def _mask_edge(person, confidence, previous):
+    """Boundary size, uncertain fringe, and change against the previous mask."""
+    edge = cv2.morphologyEx(person, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+    changed = 0.0 if previous is None else float(np.mean(person != previous))
+    fringe = 0.0
+    if confidence is not None:
+        fringe = float(np.mean((confidence >= 0.35) & (confidence < 0.65)))
+    return {
+        "person_share": round(float(np.mean(person > 0)), 4),
+        "boundary_share": round(float(np.mean(edge > 0)), 4),
+        "fringe_share": round(fringe, 4),
+        "mask_change": round(changed, 4),
+    }
+
+
+def _feather_cutout(frame, person, background=None):
+    radius = max(7, min(frame.shape[:2]) // 70)
+    if radius % 2 == 0:
+        radius += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius, radius))
+    core = cv2.erode(person, kernel, iterations=1)
+    dist = cv2.distanceTransform(core, cv2.DIST_L2, 3)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    core[(dist > 0) & (dist < radius) & (gray < 48)] = 0
+    blur = radius * 2 + 1
+    soft = cv2.GaussianBlur(core, (blur, blur), 0)
+    alpha = (soft.astype(np.float32) / 255.0)[..., None]
+    if background is None:
+        background = np.zeros_like(frame)
+        background[:, :] = (188, 214, 232)
+    return (frame.astype(np.float32) * alpha + background.astype(np.float32) * (1.0 - alpha)).astype(np.uint8)
+
+
+def motion_video(out_dir, seg_model):
+    """Segment a real moving picture onto a moving background. A still-image pan is not accepted."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    src = os.environ.get("CINECODE_MOTION_VIDEO", "")
+    if not src or not os.path.isfile(src):
+        print(json.dumps({"error": "motion_footage_unavailable"}))
+        return 3
+    start = os.environ.get("CINECODE_MOTION_SS", "0")
+    seconds = os.environ.get("CINECODE_MOTION_SECONDS", "5")
+    frame_dir = out / "frames"
+    frame_dir.mkdir(exist_ok=True)
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-ss", start, "-t", seconds, "-i", src,
+         "-vf", "fps=10,scale=640:-2", str(frame_dir / "f%03d.png")],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    frames = sorted(frame_dir.glob("f*.png"))
+    if proc.returncode != 0 or len(frames) < 8:
+        print(json.dumps({"error": "motion_decode_failed", "stderr": proc.stderr.decode()[-400:]}))
+        return 1
+    options = vision.ImageSegmenterOptions(
+        base_options=python.BaseOptions(model_asset_path=seg_model),
+        output_confidence_masks=True)
+    segmenter = vision.ImageSegmenter.create_from_options(options)
+    composited, edges = [], []
+    masks = []
+    first = cv2.imread(str(frames[0]))
+    previous = None
+    for index, path in enumerate(frames):
+        frame = cv2.imread(str(path))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = segmenter.segment(mp_image)
+        conf = np.squeeze(result.confidence_masks[0].numpy_view())
+        if conf.shape[:2] != frame.shape[:2]:
+            conf = cv2.resize(conf, (frame.shape[1], frame.shape[0]))
+        person = np.where(conf >= 0.5, 255, 0).astype(np.uint8)
+        stat = _mask_edge(person, conf, previous)
+        stat["frame"] = index
+        stat["second"] = round(index / 10.0, 2)
+        edges.append(stat)
+        masks.append(person)
+        background = _moving_background(frame.shape, index, len(frames))
+        if index == 0:
+            cv2.imwrite(str(out / "segment-hard-edge.jpg"), np.where(person[:, :, None] == 0, background, frame))
+        composited.append(_feather_cutout(frame, person, background))
+        previous = person
+    share = float(np.mean([item["person_share"] for item in edges]))
+    changes = [item["mask_change"] for item in edges[1:]]
+    fringes = [item["fringe_share"] for item in edges]
+    h, w = composited[0].shape[:2]
+    raw = out / "frames.raw"
+    with raw.open("wb") as handle:
+        for frame in composited:
+            handle.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).tobytes())
+    enc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}",
+         "-r", "10", "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+         str(out / "segment-after.mp4")],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw.unlink(missing_ok=True)
+    cv2.imwrite(str(out / "segment-before.jpg"), first)
+    cv2.imwrite(str(out / "segment-after.jpg"), composited[0])
+    for mark in (0, 20, 40):
+        if mark < len(frames):
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-source.jpg"), cv2.imread(str(frames[mark])))
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-mask.jpg"), masks[mark])
+            cv2.imwrite(str(out / f"compare-t{mark // 10}-composite.jpg"), composited[mark])
+    worst = max(edges[1:], key=lambda item: item["mask_change"]) if len(edges) > 1 else edges[0]
+    softest = max(edges, key=lambda item: item["fringe_share"])
+    report = {
+        "segmenter": "MediaPipe selfie segmenter",
+        "model_licence": "Apache-2.0",
+        "model_sha256": "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b",
+        "frames": len(frames),
+        "fps": 10,
+        "seconds": float(seconds),
+        "person_pixel_share": round(share, 3),
+        "mean_mask_change": round(float(np.mean(changes)) if changes else 0.0, 4),
+        "max_mask_change": worst,
+        "max_fringe": softest,
+        "mean_fringe_share": round(float(np.mean(fringes)), 4),
+        "background": "moving_bands",
+        "still_pan": False,
+        "face_swap_rights": False,
+        "source": src,
+        "source_note": os.environ.get("CINECODE_MOTION_NOTE", ""),
+        "limit": "The cutout follows the filmed motion. A translated still is not used. This clip is a background test only.",
+        "edges": edges,
+    }
+    (out / "segment-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if enc.returncode != 0 or not 0.02 < share < 0.9:
+        print(json.dumps({"error": "mask_not_a_person", **{k: report[k] for k in report if k != "edges"}}))
+        return 1
+    print(json.dumps({
+        "person_pixel_share": report["person_pixel_share"],
+        "frames": len(frames),
+        "mean_mask_change": report["mean_mask_change"],
+        "mean_fringe_share": report["mean_fringe_share"],
+    }))
+    return 0
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("cmd", choices=["face", "segment", "motion"])
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args(argv)
+    if args.cmd == "face":
+        model = os.environ.get("CINECODE_FACE_MODEL", "")
+        if not model or not os.path.isfile(model):
+            print(json.dumps({"error": "landmark_model_unavailable", "env": "CINECODE_FACE_MODEL"}))
+            return 3
+        return face_swap(args.out, model)
+    model = os.environ.get("CINECODE_SEG_MODEL", "")
+    if not model or not os.path.isfile(model):
+        print(json.dumps({"error": "segmenter_unavailable", "env": "CINECODE_SEG_MODEL"}))
+        return 3
+    if args.cmd == "motion":
+        return motion_video(args.out, model)
+    return segment_video(args.out, model)
+
+
+if __name__ == "__main__":
+    if sys.platform == "win32" and not sys.flags.utf8_mode:  # Windows reads, writes and prints in a legacy code page
+        sys.exit(subprocess.call([sys.executable] + sys.argv, env=dict(os.environ, PYTHONUTF8="1")))
+    sys.exit(main(sys.argv[1:]))
