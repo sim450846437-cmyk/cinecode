@@ -22,7 +22,7 @@ def story():
         "shots": [
             {
                 "index": i, "scene_id": "夜班车站", "character_ids": ["周宁", "阿禾"],
-                "scale": "中景", "action": "动作" + str(i), "dialogue": "周宁说一句。",
+                "scale": "中景", "action": "动作" + str(i), "dialogue": "对白" + str(i) + "。",
                 "start_s": (i - 1) * 4,
                 "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"},
             }
@@ -43,6 +43,14 @@ class Schema(unittest.TestCase):
         repeated = story()
         repeated["shots"][1]["action"] = repeated["shots"][0]["action"]
         self.assertIn("shot_action_repeated", story_schema.validate_story(repeated, min_shots=4))
+        same_line = story()
+        for shot in same_line["shots"]:
+            shot["dialogue"] = "谢谢我赶上了"
+            shot["action"] = "周宁和阿禾在" + ("站台中央", "站台东侧", "候车室门口", "站台西侧")[shot["index"] - 1] + "等待末班车。"
+        same_errors = story_schema.validate_story(same_line, min_shots=4)
+        self.assertIn("dialogue_repeated", same_errors)
+        self.assertIn("shot_action_same_event", same_errors)
+        self.assertNotIn("shots_need_4", same_errors)
         joined = story()
         for shot in joined["shots"]:
             shot["character_ids"] = "周宁,阿禾"
@@ -56,6 +64,18 @@ class Schema(unittest.TestCase):
         self.assertEqual((higher, higher_why), (6, "brief_named_count"))
         lowered, lowered_why = story_schema.min_shots_for("请写两镜。")
         self.assertEqual((lowered, lowered_why), (4, "official_minimum_four"))
+
+    def test_offline_cli_reports_two_shots_and_accepts_four_distinct(self):
+        root = Path(__file__).resolve().parents[1] / "deploy" / "narrative-local" / "examples"
+        short = story_schema.main([str(root / "storyboard-fewer-than-four.json")])
+        self.assertEqual(short, 1)
+        distinct = story_schema.main([str(root / "storyboard-four-distinct.json")])
+        self.assertEqual(distinct, 0)
+        same = story_schema.main([str(root / "storyboard-same-event.json")])
+        self.assertEqual(same, 1)
+        missing = story_schema.main([])
+        self.assertEqual(missing, 2)
+        self.assertEqual(story_schema.main(["--help"]), 0)
 
     def test_a_complete_board_passes_and_a_backwards_clock_does_not(self):
         self.assertEqual(story_schema.validate_story(story()), [])

@@ -1,0 +1,52 @@
+{
+ "plot": "周宁在夜班车站把阿禾送上末班车。",
+ "characters": [
+  {"id": "周宁", "name": "周宁", "description": "三十岁短发，灰色外套。"},
+  {"id": "阿禾", "name": "阿禾", "description": "二十五岁长发，深蓝围巾。"}
+ ],
+ "scenes": [
+  {"id": "夜班车站", "description": "空荡站台，一盏黄灯。"}
+ ],
+ "shots": [
+  {
+   "index": 1,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "全景",
+   "action": "周宁看着手表。",
+   "dialogue": "末班车还没走。",
+   "start_s": 0,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 2,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "中景",
+   "action": "阿禾跑向检票口。",
+   "dialogue": "谢谢，我赶上了。",
+   "start_s": 8,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 3,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "近景",
+   "action": "周宁把票递出去。",
+   "dialogue": "票在这里。",
+   "start_s": 16,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  },
+  {
+   "index": 4,
+   "scene_id": "夜班车站",
+   "character_ids": ["周宁", "阿禾"],
+   "scale": "特写",
+   "action": "车门打开。",
+   "dialogue": "我们上去。",
+   "start_s": 24,
+   "resources": {"image": "not_generated", "video": "not_generated", "audio": "not_generated"}
+  }
+ ]
+}

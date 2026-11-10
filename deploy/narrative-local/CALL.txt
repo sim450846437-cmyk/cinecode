@@ -18,6 +18,16 @@
   CINECODE_LLAMA_CLI=.local-tools/llama-b12195/llama-cli CINECODE_COPY_MODEL=.local-models/qwen2.5-3b-instruct-q4_k_m.gguf python3 scripts/storyboard_local.py '题目' out.json
   题目没写镜数时，仍要求至少 4 个动作不同的镜头。不足 4 镜时退出码不是 0，errors 含 shots_need_4，structure_ok 为 false。这不是质量通过，qualified 仍是 false。
 
+  离线结构校验（不调用模型，不判断画面或声音）：
+  python3 scripts/story_schema.py --help
+  python3 scripts/story_schema.py examples/storyboard-fewer-than-four.json
+  python3 scripts/story_schema.py examples/storyboard-four-distinct.json
+  python3 scripts/story_schema.py examples/storyboard-same-event.json
+  无参数退出码 2，JSON 含 need_story_json。少于四镜退出码 1，errors 含 shots_need_4。
+  四条动作和对白都不同的样例退出码 0，但 qualified 仍是 false，media_quality 是 not_run。
+  只换地点、对白相同的等车样例退出码 1，errors 含 dialogue_repeated 和 shot_action_same_event。
+  动作字符串不同不等于叙事不同。dfg 的 coverage 只查提示词字面是否出现，不读这些镜头对白，也不阻断。
+
   dfg 自测（评估，不生成）：
   PYTHONPATH=vendor/dfg-gauges python3 -m dfg.cli selftest
 

@@ -1,6 +1,9 @@
-"""Structural checks for a model storyboard. This does not judge prose quality."""
+"""Structural checks for a model storyboard. This does not judge prose quality or pictures."""
+import argparse
 import json
 import re
+import sys
+from pathlib import Path
 
 SCALES = ("全景", "中景", "近景", "特写")
 RESOURCE_KEYS = ("image", "video", "audio")
@@ -158,17 +161,49 @@ def validate_story(data, min_shots=4):
             if resources.get(key) not in (None, "", "not_generated"):
                 errors.append("resource_claimed:" + key)
     actions = []
+    events = []
+    dialogues = []
     for item in shots:
         if not isinstance(item, dict):
             continue
         action = str(item.get("action") or "").strip()
         if action and action in actions:
             errors.append("shot_action_repeated")
+        event = action_event(action, char_ids)
+        if event and event in events:
+            errors.append("shot_action_same_event")
         if action:
             actions.append(action)
+        if event:
+            events.append(event)
+        line = str(item.get("dialogue") or "").strip()
+        if line and line in dialogues:
+            errors.append("dialogue_repeated")
+        if line:
+            dialogues.append(line)
     if seen_index and seen_index != list(range(1, len(seen_index) + 1)):
         errors.append("index_not_sequential")
     return errors
+
+
+# Place words only. Removing them must not be described as narrative diversity.
+_PLACE_WORDS = (
+    "候车室门口", "站台中央", "站台东侧", "站台西侧", "站台一角", "候车室",
+    "站台", "车厢", "月台", "门口", "角落", "中央", "一角", "旁边", "对面",
+    "东侧", "西侧", "左侧", "右侧", "前方", "后方",
+)
+
+
+def action_event(text, names):
+    """Exact core after names and place words. Not a semantic comparison."""
+    core = str(text or "").strip()
+    for name in sorted((str(name) for name in names if name), key=len, reverse=True):
+        core = core.replace(name, "")
+    for place in sorted(_PLACE_WORDS, key=len, reverse=True):
+        core = core.replace(place, "")
+    core = re.sub(r"(?:站在|坐在|走在|留在|等在)", "", core)
+    core = re.sub(r"[，。；、：！？\s和与及的了着在]", "", core)
+    return core
 
 
 def force_not_generated(data):
@@ -183,3 +218,88 @@ def force_not_generated(data):
 
 def strip_fence(text):
     return re.sub(r"^```(?:json)?|```$", "", text or "", flags=re.M)
+
+
+def board_from_json(data):
+    """Accept a bare board or a storyboard_local payload. Do not call a model."""
+    if isinstance(data, dict) and isinstance(data.get("story"), dict):
+        return data["story"]
+    return data
+
+
+def validation_report(data, min_shots=OFFICIAL_MIN_SHOTS, floor_basis="official_minimum_four"):
+    board = board_from_json(data)
+    if isinstance(board, dict):
+        normalize_story(board)
+    errors = validate_story(board, min_shots=min_shots)
+    shots = board.get("shots") if isinstance(board, dict) else None
+    return {
+        "structure_ok": not errors,
+        "errors": errors,
+        "shot_count": len(shots) if isinstance(shots, list) else 0,
+        "shot_floor": {"min_shots": min_shots, "basis": floor_basis},
+        "qualified": False,
+        "chain_complete": False,
+        "media_quality": "not_run",
+        "adherence": {
+            "checked": ["dialogue_exact", "action_event_after_names_and_places"],
+            "semantic_similarity": False,
+            "prompt_coverage": "not_this_command",
+            "note": "Identical dialogue is dialogue_repeated. Actions that still match after character names and place words are removed are shot_action_same_event. A different action string is not narrative diversity. dfg coverage only checks whether prompt terms appear and does not read these shot lines. This is not a picture or sound pass.",
+        },
+    }
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        description="Validate a storyboard file offline. No model and no media quality pass.",
+        epilog=(
+            "examples/storyboard-fewer-than-four.json exits 1 with shots_need_4. "
+            "examples/storyboard-four-distinct.json exits 0; qualified stays false and media_quality is not_run. "
+            "examples/storyboard-same-event.json exits 1 with dialogue_repeated and shot_action_same_event. "
+            "No arguments exit 2 with need_story_json. Help is not a validation pass."
+        ),
+    )
+    parser.add_argument("story", nargs="?", help="path to storyboard JSON")
+    parser.add_argument("--brief", default="", help="optional brief; a named count can only raise the four-shot floor")
+    if argv in (["-h"], ["--help"]):
+        parser.print_help()
+        return 0
+    args = parser.parse_args(argv)
+    if not args.story:
+        print(json.dumps({
+            "error": "need_story_json",
+            "structure_ok": False,
+            "qualified": False,
+            "chain_complete": False,
+            "media_quality": "not_run",
+        }, ensure_ascii=False))
+        return 2
+    path = Path(args.story)
+    if not path.is_file():
+        print(json.dumps({
+            "error": "story_file_missing",
+            "path": str(path),
+            "structure_ok": False,
+            "qualified": False,
+            "media_quality": "not_run",
+        }, ensure_ascii=False))
+        return 2
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(json.dumps({
+            "error": "story_not_json",
+            "structure_ok": False,
+            "qualified": False,
+            "media_quality": "not_run",
+        }, ensure_ascii=False))
+        return 2
+    min_shots, floor_basis = min_shots_for(args.brief) if args.brief else (OFFICIAL_MIN_SHOTS, "official_minimum_four")
+    report = validation_report(data, min_shots=min_shots, floor_basis=floor_basis)
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["structure_ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
