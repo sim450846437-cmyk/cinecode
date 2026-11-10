@@ -49,6 +49,7 @@ def attempt(cli, model, prompt, min_shots):
     finished = datetime.now(timezone.utc).isoformat()
     raw = text or ""
     data = story_schema.extract_json(story_schema.strip_fence(raw))
+    normalizations = story_schema.normalize_story(data) if data is not None else []
     errors = story_schema.validate_story(data, min_shots=min_shots) if data is not None else ["not_json"]
     return {
         "started_at": started,
@@ -56,6 +57,7 @@ def attempt(cli, model, prompt, min_shots):
         "generation": meta,
         "raw_stdout": raw,
         "parsed": data,
+        "normalizations": normalizations,
         "errors": errors,
     }
 
@@ -67,7 +69,10 @@ def main(argv):
         print(json.dumps({"error": "need brief, out path, optional min_shots, CINECODE_LLAMA_CLI and CINECODE_COPY_MODEL"}))
         return 2
     brief, dest = argv[0], Path(argv[1])
-    min_shots = int(argv[2]) if len(argv) == 3 else 4
+    if len(argv) == 3:
+        min_shots, floor_basis = int(argv[2]), "caller_argument"
+    else:
+        min_shots, floor_basis = story_schema.min_shots_for(brief)
     first = attempt(cli, model, brief, min_shots)
     revisions = []
     current = first
@@ -104,6 +109,7 @@ def main(argv):
         "qualified": False,
         "picture_match": "not_run",
         "listened": False,
+        "shot_floor": {"min_shots": min_shots, "basis": floor_basis},
         "quality_note": "structure, character refs, and timeline only; not a prose score",
     }
     dest.parent.mkdir(parents=True, exist_ok=True)

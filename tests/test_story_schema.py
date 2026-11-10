@@ -31,6 +31,27 @@ def story():
 
 
 class Schema(unittest.TestCase):
+    def test_a_two_line_brief_does_not_demand_four_shots(self):
+        brief = "夜班车站，虚构成年周宁与阿禾，末班车还没走/谢谢我赶上了"
+        count, basis = story_schema.min_shots_for(brief)
+        self.assertEqual((count, basis), (1, "brief_has_no_shot_count"))
+        board = story()
+        board["shots"] = board["shots"][:2]
+        board["shots"][1]["start_s"] = 4
+        self.assertEqual(story_schema.validate_story(board, min_shots=count), [])
+        self.assertIn("shots_need_4", story_schema.validate_story(board, min_shots=4))
+        joined = story()
+        joined["shots"] = joined["shots"][:2]
+        joined["shots"][1]["start_s"] = 4
+        for shot in joined["shots"]:
+            shot["character_ids"] = "周宁,阿禾"
+        self.assertIn("character_refs_missing", story_schema.validate_story(joined, min_shots=1))
+        notes = story_schema.normalize_story(joined)
+        self.assertEqual(notes, ["split_character_ids", "split_character_ids"])
+        self.assertEqual(story_schema.validate_story(joined, min_shots=1), [])
+        named, why = story_schema.min_shots_for("请写四镜。")
+        self.assertEqual((named, why), (4, "brief_named_count"))
+
     def test_a_complete_board_passes_and_a_backwards_clock_does_not(self):
         self.assertEqual(story_schema.validate_story(story()), [])
         broken = story()

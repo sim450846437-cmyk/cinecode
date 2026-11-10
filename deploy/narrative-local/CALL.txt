@@ -21,8 +21,12 @@
   PYTHONPATH=vendor/dfg-gauges python3 -m dfg.cli selftest
 
   导入一段已有视频并挂软字幕，原音原画复制：
-  python3 scripts/shot_protocol.py manifest.json out.mp4
-  manifest 里只能有一条真实 video 路径。同一路径出现两次会被拒绝。没有文件时退出且不写 MP4。
+  python3 scripts/shot_protocol.py examples/station-probe-one-shot.json out.mp4
+  该示例只有一条 video，路径是
+  /workspace/short-video-production/station-probe-20261110/station-probe-one-shot.mp4
+  同一路径出现两次会被拒绝。没有文件时退出且不写 MP4。
+
+character-lipsync 是程序化嘴形，不是对白生成。云端仓库 vendor 里有它，这个 box 包不装它。
 
 诊断：
 

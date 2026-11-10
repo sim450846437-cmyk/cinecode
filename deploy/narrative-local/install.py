@@ -21,6 +21,22 @@ def sha256(path):
     return hasher.hexdigest()
 
 
+def safe_extract(tar_path, dest):
+    dest.mkdir(parents=True, exist_ok=True)
+    root = dest.resolve()
+    with tarfile.open(tar_path) as handle:
+        for member in handle.getmembers():
+            name = member.name
+            if name.startswith("/") or ".." in Path(name).parts:
+                raise SystemExit("unsafe tar member: " + name)
+            if member.issym() or member.islnk():
+                raise SystemExit("unsafe tar link: " + name)
+            target = (root / name).resolve()
+            if root != target and root not in target.parents:
+                raise SystemExit("unsafe tar path: " + name)
+        handle.extractall(root, filter="data")
+
+
 def place(url, dest, expect, cache):
     dest.parent.mkdir(parents=True, exist_ok=True)
     if cache:
@@ -83,8 +99,14 @@ def main(argv):
     if cli_from == "url":
         print("download", cli["url"], flush=True)
         urllib.request.urlretrieve(cli["url"], tar_path)
-        with tarfile.open(tar_path) as handle:
-            handle.extractall(target / ".local-tools")
+        expect_tar = cli.get("tarball_sha256")
+        if not expect_tar:
+            raise SystemExit("lock has no tarball_sha256")
+        got_tar = sha256(tar_path)
+        if got_tar != expect_tar:
+            tar_path.unlink(missing_ok=True)
+            raise SystemExit("tarball sha256 mismatch: " + got_tar)
+        safe_extract(tar_path, target / ".local-tools")
         tar_path.unlink(missing_ok=True)
     got = sha256(cli_dest)
     if got != cli["binary_sha256"]:

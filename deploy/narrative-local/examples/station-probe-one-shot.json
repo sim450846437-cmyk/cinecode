@@ -1,0 +1,12 @@
+{
+  "shot_count": 1,
+  "note": "One existing file. Do not duplicate this path into a second shot.",
+  "shots": [
+    {
+      "index": 1,
+      "resources": {
+        "video": "/workspace/short-video-production/station-probe-20261110/station-probe-one-shot.mp4"
+      }
+    }
+  ]
+}

@@ -28,6 +28,33 @@ def extract_json(text):
     return None
 
 
+def min_shots_for(brief):
+    """Use a count only when the brief names one. Do not invent four shots."""
+    match = re.search(r"([0-9]+|[一二两三四五六七八九十])\s*镜", brief or "")
+    if not match:
+        return 1, "brief_has_no_shot_count"
+    token = match.group(1)
+    if token.isdigit():
+        return max(1, int(token)), "brief_named_count"
+    table = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    return table.get(token, 1), "brief_named_count"
+
+
+def normalize_story(data):
+    """Split a comma-joined id string. The words stay the model's."""
+    notes = []
+    if not isinstance(data, dict):
+        return notes
+    for shot in data.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        refs = shot.get("character_ids")
+        if isinstance(refs, str):
+            shot["character_ids"] = [part.strip() for part in re.split(r"[,，、\s]+", refs) if part.strip()]
+            notes.append("split_character_ids")
+    return notes
+
+
 def validate_story(data, min_shots=4):
     """Character ids, scene ids, shot order, and missing media. Not a taste score."""
     errors = []

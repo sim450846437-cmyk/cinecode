@@ -10,6 +10,7 @@
   "llama-cli": {
     "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12195/llama-b12195-bin-ubuntu-x64.tar.gz",
     "release": "b12195",
+    "tarball_sha256": "195f8c2260bb51e80dedf734c9359a30ce43f69b21e19eecf418a2510a9403c2",
     "binary_sha256": "d6cc36e5fdc2eedd6e052dc7eb1e29d21065331e37e31f57ab2ca4720635dba2",
     "age": "existing runtime, not a window-new tool",
     "path": ".local-tools/llama-b12195/llama-cli"
