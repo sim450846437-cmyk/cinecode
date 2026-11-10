@@ -88,6 +88,31 @@ class Schema(unittest.TestCase):
             self.assertEqual(dup_report["error"], "duplicate_source")
             self.assertFalse(dup_out.exists())
 
+    def test_one_file_import_keeps_an_existing_soft_subtitle(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            video = tmp / "in.mp4"
+            srt = tmp / "in.srt"
+            srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n末班车还没走。\n", encoding="utf-8")
+            subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x80:d=1:r=24",
+                 "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-i", str(srt),
+                 "-map", "0:v", "-map", "1:a", "-map", "2:0", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                 "-c:a", "aac", "-c:s", "mov_text", "-shortest", str(video)],
+                check=True,
+            )
+            manifest = tmp / "manifest.json"
+            out = tmp / "out.mp4"
+            manifest.write_text(json.dumps({"shots": [{"index": 1, "resources": {"video": str(video)}}]}), encoding="utf-8")
+            report = shot_protocol.assemble(manifest, out)
+            self.assertTrue(report.get("subtitle_preserved"))
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "s", "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(out)],
+                text=True, capture_output=True, check=True,
+            )
+            self.assertEqual(probe.stdout.strip(), "mov_text")
+
 
 if __name__ == "__main__":
     unittest.main()

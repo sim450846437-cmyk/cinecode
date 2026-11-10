@@ -39,6 +39,24 @@ def missing_media(manifest):
     return missing
 
 
+def has_subtitle(path):
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "s", "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+        text=True, capture_output=True,
+    )
+    return bool(proc.stdout.strip())
+
+
+def copy_one(src, out_path, keep_subs):
+    maps = ["-map", "0:v:0", "-map", "0:a:0?"]
+    if keep_subs:
+        maps.extend(["-map", "0:s:0"])
+    return subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", src, *maps, "-c", "copy", str(out_path)],
+        text=True, capture_output=True,
+    )
+
+
 def assemble(manifest_path, out_path):
     manifest = load_manifest(manifest_path)
     gaps = missing_media(manifest)
@@ -59,6 +77,21 @@ def assemble(manifest_path, out_path):
         report["out"] = None
         return report
     subtitle = manifest.get("subtitle")
+    if len(paths) == 1 and not subtitle and has_subtitle(paths[0]):
+        proc = copy_one(paths[0], out_path, True)
+        report["protocol"] = "import_one_keep_audio_and_soft_subs"
+        report["ffmpeg_returncode"] = proc.returncode
+        report["ffmpeg_stderr"] = proc.stderr[-500:]
+        report["shots_imported"] = 1
+        report["subtitle_preserved"] = proc.returncode == 0 and Path(out_path).is_file()
+        if proc.returncode != 0 or not Path(out_path).is_file():
+            report["error"] = "ffmpeg_failed"
+            report["out"] = None
+            report["subtitle_preserved"] = False
+            return report
+        report["out"] = str(out_path)
+        report["imported"] = True
+        return report
     if subtitle and len(paths) == 1:
         if not Path(str(subtitle)).is_file():
             report["error"] = "subtitle_missing"
