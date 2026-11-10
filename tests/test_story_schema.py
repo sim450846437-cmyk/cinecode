@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import film_chain
 import shot_protocol
 import story_schema
 
@@ -112,6 +113,34 @@ class Schema(unittest.TestCase):
                 text=True, capture_output=True, check=True,
             )
             self.assertEqual(probe.stdout.strip(), "mov_text")
+
+    def test_one_real_file_is_not_a_two_minute_film(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            video = tmp / "only.mp4"
+            subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x80:d=1:r=24",
+                 "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest",
+                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video)],
+                check=True,
+            )
+            manifest = tmp / "feature.json"
+            out = tmp / "film.mp4"
+            log = tmp / "run.json"
+            manifest.write_text(json.dumps({
+                "fiction": True,
+                "target": "feature",
+                "shots": [
+                    {"index": 1, "resources": {"video": str(video)}},
+                    {"index": 2, "resources": {"video": str(video)}},
+                ],
+            }), encoding="utf-8")
+            result = film_chain.run(manifest, out, log)
+            self.assertFalse(out.exists())
+            self.assertIn("duplicate_shot:2", result["reasons"])
+            self.assertIn("head_not_run", result["reasons"])
+            self.assertFalse(result["chain_complete"])
 
 
 if __name__ == "__main__":
