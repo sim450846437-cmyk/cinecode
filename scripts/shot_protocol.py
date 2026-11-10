@@ -1,5 +1,6 @@
 """Import and concat shot files. Missing media is a recorded failure, not a film."""
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,30 @@ def has_subtitle(path):
     return bool(proc.stdout.strip())
 
 
+def subtitle_cues(path):
+    """Timing and text of the first soft-subtitle stream. Empty when that stream is absent."""
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:s:0", "-f", "srt", "-"],
+        text=True, capture_output=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+    cues = []
+    for block in re.split(r"\n\s*\n", proc.stdout.strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        timing = next((line for line in lines if "-->" in line), "")
+        if not timing:
+            continue
+        text = "\n".join(line for line in lines if line != timing and not line.isdigit())
+        cues.append({"timing": re.sub(r"\s+", "", timing), "text": text})
+    return cues
+
+
+def same_soft_subs(src, out_path):
+    source = subtitle_cues(src)
+    return bool(source) and subtitle_cues(out_path) == source
+
+
 def copy_one(src, out_path, keep_subs):
     maps = ["-map", "0:v:0", "-map", "0:a:0?"]
     if keep_subs:
@@ -83,12 +108,19 @@ def assemble(manifest_path, out_path):
         report["ffmpeg_returncode"] = proc.returncode
         report["ffmpeg_stderr"] = proc.stderr[-500:]
         report["shots_imported"] = 1
-        report["subtitle_preserved"] = proc.returncode == 0 and Path(out_path).is_file()
+        report["subtitle_preserved"] = False
         if proc.returncode != 0 or not Path(out_path).is_file():
             report["error"] = "ffmpeg_failed"
             report["out"] = None
-            report["subtitle_preserved"] = False
             return report
+        if not same_soft_subs(paths[0], out_path):
+            Path(out_path).unlink(missing_ok=True)
+            report["error"] = "subtitle_not_kept"
+            report["imported"] = False
+            report["out"] = None
+            return report
+        report["subtitle_cues"] = subtitle_cues(out_path)
+        report["subtitle_preserved"] = True
         report["out"] = str(out_path)
         report["imported"] = True
         return report

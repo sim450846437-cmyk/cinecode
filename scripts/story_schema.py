@@ -28,16 +28,29 @@ def extract_json(text):
     return None
 
 
-def min_shots_for(brief):
-    """Use a count only when the brief names one. Do not invent four shots."""
+OFFICIAL_MIN_SHOTS = 4
+
+
+def named_shot_count(brief):
+    """Return a count only when the brief itself names one."""
     match = re.search(r"([0-9]+|[一二两三四五六七八九十])\s*镜", brief or "")
     if not match:
-        return 1, "brief_has_no_shot_count"
+        return None
     token = match.group(1)
     if token.isdigit():
-        return max(1, int(token)), "brief_named_count"
+        return max(1, int(token))
     table = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-    return table.get(token, 1), "brief_named_count"
+    return table.get(token)
+
+
+def min_shots_for(brief):
+    """Official boards stay at four distinct shots. A brief may only raise that floor."""
+    named = named_shot_count(brief)
+    if named is not None and named > OFFICIAL_MIN_SHOTS:
+        return named, "brief_named_count"
+    if named == OFFICIAL_MIN_SHOTS:
+        return OFFICIAL_MIN_SHOTS, "brief_named_count"
+    return OFFICIAL_MIN_SHOTS, "official_minimum_four"
 
 
 def normalize_story(data):
@@ -144,6 +157,15 @@ def validate_story(data, min_shots=4):
         for key in RESOURCE_KEYS:
             if resources.get(key) not in (None, "", "not_generated"):
                 errors.append("resource_claimed:" + key)
+    actions = []
+    for item in shots:
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action") or "").strip()
+        if action and action in actions:
+            errors.append("shot_action_repeated")
+        if action:
+            actions.append(action)
     if seen_index and seen_index != list(range(1, len(seen_index) + 1)):
         errors.append("index_not_sequential")
     return errors
